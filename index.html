@@ -1,2288 +1,665 @@
 <!DOCTYPE html>
-<html lang="es" class="">
+<html lang="es">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="description" content="Editor Markdown + LaTeX con vista previa paginada A4, KaTeX (SVG) y exportación a PDF. 100% cliente." />
+<meta name="description" content="Editor Lantex: editor visual de documentos A4 con formato estilo Word, fórmulas LaTeX, imágenes, tablas, Markdown y exportación a PDF. 100% en el navegador." />
 <meta name="color-scheme" content="light dark" />
-<title>Editor LaTeX/Markdown Paginado A4</title>
+<title>Lantex · Editor de documentos A4</title>
 
-<!-- ==========================================================================
-     TAILWIND CSS (CDN) + configuración darkMode por clase
-     ========================================================================== -->
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Tema aplicado antes del primer pintado para evitar destellos -->
 <script>
-  tailwind.config = { darkMode: 'class' };
-</script>
-<script>
-  /* Tema sin parpadeo: se aplica antes del primer pintado */
   (function () {
     try {
       var raw = localStorage.getItem('editor-config');
       if (raw && JSON.parse(raw).theme === 'dark') document.documentElement.classList.add('dark');
-    } catch (e) { /* LocalStorage no disponible: se ignora silenciosamente */ }
+    } catch (e) { /* almacenamiento no disponible */ }
   })();
 </script>
 
-<!-- ==========================================================================
-     KATEX (fuentes + motor) — CDN
-     ========================================================================== -->
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="alternate icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="preconnect" href="https://unpkg.com" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
       integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous" />
-
-<style>
-/* ==========================================================================
-   1. BASE / LAYOUT DE APLICACIÓN
-   ========================================================================== */
-:root{
-  --editor-font-size:14px;
-  --editor-line-height:1.6;
-  --ui-accent:#4f46e5;
-  --page-shadow:0 1px 2px rgba(15,23,42,.10), 0 10px 30px rgba(15,23,42,.14);
-}
-*{box-sizing:border-box;}
-html,body{height:100%;}
-body{
-  margin:0;
-  height:100dvh;
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-  background:#eef1f6;
-  -webkit-text-size-adjust:100%;
-  transition:background-color .25s ease,color .25s ease;
-}
-html.dark body{background:#0b1020;}
-.app-header{flex:0 0 auto;}
-.app-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
-#appGrid{flex:1 1 auto;min-height:0;}
-#panelEditor,#panelPreview{display:flex;flex-direction:column;min-height:0;}
-.editor-shell{flex:1 1 auto;min-height:0;}
-#pagesWrap{flex:1 1 auto;min-height:0;}
-*{scrollbar-width:thin;}
-::-webkit-scrollbar{width:10px;height:10px;}
-::-webkit-scrollbar-thumb{background:rgba(100,116,139,.45);border-radius:999px;border:2px solid transparent;background-clip:content-box;}
-::-webkit-scrollbar-track{background:transparent;}
-
-/* ==========================================================================
-   2. HOJA A4  (210 x 297 mm, márgenes 25 mm, SIEMPRE fondo blanco)
-   ========================================================================== */
-.a4-page{
-  position:relative;
-  width:210mm;
-  height:297mm;
-  padding:25mm;                       /* márgenes 2.5 cm en los cuatro lados */
-  background:#ffffff;                 /* la hoja nunca cambia de color */
-  color:#111827;
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-  font-family:"Latin Modern Roman","CMU Serif","Computer Modern","Times New Roman",Georgia,serif;
-  font-size:11.6pt;
-  line-height:1.62;
-}
-.a4-content{
-  flex:1 1 auto;
-  min-height:0;
-  overflow:hidden;
-  text-align:justify;
-  hyphens:auto;
-  -webkit-hyphens:auto;
-  word-break:normal;
-  overflow-wrap:break-word;
-}
-.a4-header,.a4-footer{
-  position:absolute;
-  left:25mm;right:25mm;
-  font-size:8.6pt;
-  color:#6b7280;
-  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
-  display:flex;align-items:center;gap:6mm;
-}
-.a4-header{top:12mm;border-bottom:.5pt solid #d8dde5;padding-bottom:1.6mm;}
-.a4-footer{bottom:12mm;border-top:.5pt solid #d8dde5;padding-top:1.6mm;}
-.a4-header span:last-child,.a4-footer span:last-child{margin-left:auto;}
-
-/* Vista previa: sombra y separación entre hojas */
-#pages{position:absolute;top:22px;left:0;transform-origin:top left;}
-#pages .a4-page{box-shadow:var(--page-shadow);margin:0 auto 24px;}
-#pagesSizer{position:relative;margin:0 auto;}
-
-/* ==========================================================================
-   3. TIPOGRAFÍA DEL CONTENIDO RENDERIZADO
-   ========================================================================== */
-.a4-content h1,.a4-content h2,.a4-content h3,.a4-content h4{
-  font-family:"Segoe UI",system-ui,-apple-system,"Times New Roman",sans-serif;
-  color:#0f172a;line-height:1.25;margin:0 0 .55em;text-align:left;hyphens:none;
-  break-after:avoid;page-break-after:avoid;
-}
-.a4-content h1{font-size:1.62em;border-bottom:1.2pt solid #cbd5e1;padding-bottom:.18em;}
-.a4-content h2{font-size:1.32em;}
-.a4-content h3{font-size:1.12em;}
-.a4-content h4{font-size:1em;}
-.a4-content p{margin:0 0 .62em;}
-.a4-content ul,.a4-content ol{margin:0 0 .7em;padding-left:1.5em;}
-.a4-content li{margin:0 0 .25em;}
-.a4-content blockquote{
-  margin:.7em 0;padding:.35em .9em;border-left:2.5pt solid #a5b4fc;color:#374151;background:#f8fafc;
-}
-.a4-content blockquote p:last-child{margin-bottom:0;}
-.a4-content hr{border:0;border-top:.6pt solid #cbd5e1;margin:1em 0;}
-.a4-content code{
-  font-family:ui-monospace,Consolas,"Liberation Mono",monospace;
-  font-size:.86em;background:#f1f5f9;border:.5pt solid #e2e8f0;border-radius:2px;padding:.05em .3em;
-}
-.a4-content pre{
-  background:#f8fafc;border:.5pt solid #e2e8f0;border-left:2.5pt solid #94a3b8;border-radius:2px;
-  padding:3mm 4mm;white-space:pre-wrap;word-break:break-word;
-  font-size:.8em;line-height:1.45;
-}
-.a4-content pre code{background:none;border:0;padding:0;font-size:1em;}
-.a4-content table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:.92em;}
-.a4-content th,.a4-content td{border:.6pt solid #9aa5b4;padding:1.6mm 2.2mm;text-align:left;vertical-align:top;}
-.a4-content th{background:#eef2f7;font-weight:600;}
-.a4-content a{color:#1d4ed8;text-decoration:none;border-bottom:.5pt solid #93c5fd;}
-.a4-content img{max-width:100%;height:auto;}
-.a4-content .math-block{
-  text-align:center;margin:.55em 0;text-indent:0;
-  break-inside:avoid;page-break-inside:avoid;
-}
-.a4-content .math-inline{text-indent:0;}
-/* Indicador CONTENIDO de error LaTeX (constitución: errores silenciosos) */
-.a4-content .math-error{
-  font-family:ui-monospace,Consolas,monospace;font-size:.82em;
-  color:#b91c1c;background:#fef2f2;border-bottom:1.5pt dotted #ef4444;
-  padding:0 .18em;border-radius:2px;
-}
-.pagebreak-marker,.hdr-marker{display:block;height:0;margin:0;padding:0;border:0;overflow:hidden;}
-
-/* KaTeX: MathML solo para accesibilidad */
-.katex-mathml{position:absolute!important;clip:rect(1px,1px,1px,1px);padding:0;border:0;height:1px;width:1px;overflow:hidden;}
-
-/* ==========================================================================
-   4. EDITOR + NÚMEROS DE LÍNEA
-   ========================================================================== */
-.editor-shell{
-  display:flex;height:100%;overflow:hidden;
-  background:#ffffff;border:1px solid #e2e8f0;border-radius:.75rem;
-}
-html.dark .editor-shell{background:#0f172a;border-color:#1e293b;}
-#gutter{
-  flex:0 0 auto;padding:12px 10px;text-align:right;user-select:none;overflow:hidden;
-  color:#94a3b8;background:rgba(100,116,139,.08);border-right:1px solid #e2e8f0;
-  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
-  font-size:var(--editor-font-size);line-height:var(--editor-line-height);
-}
-html.dark #gutter{background:rgba(148,163,184,.07);border-right-color:#1e293b;}
-#gutter div{height:calc(var(--editor-font-size) * var(--editor-line-height));}
-#gutter div.cur{color:var(--ui-accent);font-weight:700;}
-#editor{
-  flex:1 1 auto;min-width:0;height:100%;resize:none;border:0;outline:none;background:transparent;
-  padding:12px 14px;color:#0f172a;
-  font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
-  font-size:var(--editor-font-size);line-height:var(--editor-line-height);
-  white-space:pre;overflow-wrap:normal;word-wrap:normal;
-  overflow-x:scroll;overflow-y:auto;-webkit-overflow-scrolling:touch;tab-size:2;
-  scrollbar-width:auto;
-}
-#editor::-webkit-scrollbar{width:12px;height:12px;}
-#editor::-webkit-scrollbar-track{background:rgba(100,116,139,.12);border-radius:999px;}
-#editor::-webkit-scrollbar-thumb{background:rgba(100,116,139,.6);border-radius:999px;border:2px solid transparent;background-clip:content-box;}
-/* Deslizador horizontal (visible también en móvil/iOS, donde las barras nativas se ocultan) */
-#hScroll{display:none;width:100%;height:22px;margin:4px 0 0;accent-color:var(--ui-accent);cursor:ew-resize;flex:0 0 auto;}
-#hScroll.on{display:block;}
-html.dark #editor{color:#e2e8f0;}
-#editor::placeholder{color:#94a3b8;}
-
-/* ==========================================================================
-   5. BOTTOM SHEET (móvil < 640px)
-   ========================================================================== */
-#bottomSheet{
-  position:fixed;left:0;right:0;bottom:0;z-index:50;
-  background:rgba(255,255,255,.98);backdrop-filter:blur(10px);
-  border-top:1px solid #e2e8f0;border-radius:18px 18px 0 0;
-  box-shadow:0 -8px 30px rgba(15,23,42,.18);
-  transform:translateY(calc(100% - 46px));
-  transition:transform .28s cubic-bezier(.22,.61,.36,1);
-  max-height:82vh;display:flex;flex-direction:column;
-  padding-bottom:env(safe-area-inset-bottom,0);
-}
-html.dark #bottomSheet{background:rgba(15,23,42,.98);border-top-color:#1e293b;}
-#bottomSheet.open{transform:translateY(0);}
-#sheetHandle{
-  width:100%;height:46px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
-  background:none;border:0;cursor:pointer;flex:0 0 auto;
-}
-#sheetHandle .bar{width:44px;height:4px;border-radius:999px;background:#94a3b8;}
-#sheetHandle .txt{font-size:11px;color:#64748b;font-weight:600;}
-#sheetBody{overflow-y:auto;padding:0 12px 14px;}
-#sheetScrim{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:45;opacity:0;pointer-events:none;transition:opacity .25s ease;}
-#sheetScrim.show{opacity:1;pointer-events:auto;}
-
-/* ==========================================================================
-   6. UI MISC
-   ========================================================================== */
-.tbtn{
-  display:inline-flex;align-items:center;justify-content:center;gap:.35rem;
-  height:32px;min-width:32px;padding:0 .5rem;border-radius:.5rem;white-space:nowrap;
-  border:1px solid #e2e8f0;background:#fff;color:#334155;font-size:12.5px;font-weight:600;
-  cursor:pointer;transition:background-color .15s ease,color .15s ease,border-color .15s ease,transform .1s ease;
-}
-html.dark .tbtn{background:#0f172a;color:#cbd5e1;border-color:#1e293b;}
-.tbtn:hover{background:#f1f5f9;color:#0f172a;border-color:#cbd5e1;}
-html.dark .tbtn:hover{background:#1e293b;color:#f8fafc;border-color:#334155;}
-.tbtn:active{transform:translateY(1px);}
-.tbtn:disabled{opacity:.6;cursor:progress;}
-.tbtn.primary{background:var(--ui-accent);border-color:var(--ui-accent);color:#fff;}
-html.dark .tbtn.primary{background:#6366f1;border-color:#6366f1;color:#fff;}
-.tbtn.primary:hover{background:#4338ca;color:#fff;}
-.tbtn[aria-pressed="true"]{background:#eef2ff;color:#3730a3;border-color:#c7d2fe;}
-html.dark .tbtn[aria-pressed="true"]{background:#312e81;color:#e0e7ff;border-color:#4338ca;}
-.sym{
-  display:inline-flex;align-items:center;justify-content:center;
-  height:30px;min-width:38px;padding:0 .45rem;border-radius:.45rem;white-space:nowrap;
-  border:1px solid #e2e8f0;background:#fff;color:#1e293b;
-  font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:600;cursor:pointer;
-  transition:background-color .15s ease,color .15s ease;
-}
-html.dark .sym{background:#0f172a;color:#e2e8f0;border-color:#1e293b;}
-.sym:hover{background:#eef2ff;color:#3730a3;}
-html.dark .sym:hover{background:#1e293b;color:#c7d2fe;}
-.badge-err{color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:.35rem;padding:0 .3rem;}
-html.dark .badge-err{color:#fca5a5;background:rgba(153,27,27,.25);border-color:#7f1d1d;}
-#toasts{position:fixed;right:16px;bottom:18px;z-index:80;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
-.toast{
-  pointer-events:auto;max-width:min(88vw,360px);padding:.6rem .8rem;border-radius:.6rem;
-  background:#0f172a;color:#f8fafc;font-size:12.5px;box-shadow:0 10px 30px rgba(15,23,42,.25);
-  animation:toast-in .25s ease;display:flex;gap:.5rem;align-items:flex-start;
-}
-.toast.err{background:#7f1d1d;}
-.toast.ok{background:#14532d;}
-@keyframes toast-in{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
-dialog.app-dialog{border:1px solid #e2e8f0;border-radius:14px;padding:0;color:#0f172a;width:min(92vw,440px);background:#fff;}
-html.dark dialog.app-dialog{background:#0f172a;color:#e2e8f0;border-color:#1e293b;}
-dialog.app-dialog::backdrop{background:rgba(15,23,42,.55);}
-.field{width:100%;border-radius:.5rem;border:1px solid #cbd5e1;background:#fff;padding:.4rem .6rem;font-size:.8rem;outline:none;}
-.field:focus{border-color:var(--ui-accent);}
-html.dark .field{background:#0f172a;border-color:#1e293b;color:#e2e8f0;}
-
-/* Contenedores auxiliares: fuera de pantalla pero con layout real */
-#measure{position:fixed;left:-12000px;top:0;visibility:hidden;pointer-events:none;z-index:-1;}
-#exportRoot{position:fixed;left:-12000px;top:0;width:210mm;background:#fff;pointer-events:none;z-index:-1;}
-#exportRoot .a4-page{box-shadow:none;border:0;margin:0;}
-.pdf-page-break-before{page-break-before:always;break-before:page;}
-.metric{font-variant-numeric:tabular-nums;}
-
-/* Impresión directa (bonus) */
-@media print{
-  body{background:#fff;height:auto;overflow:visible;display:block;}
-  .no-print{display:none!important;}
-  #pagesWrap{overflow:visible;}
-  #pages{position:static;transform:none!important;}
-  #pages .a4-page{box-shadow:none;margin:0;page-break-after:always;}
-}
-</style>
+<link rel="stylesheet" href="css/app.css" />
 </head>
 
-<body class="font-sans antialiased text-slate-800 dark:text-slate-200">
+<body>
+<div class="app" id="app">
 
-<!-- ==========================================================================
-     HEADER — TOOLBAR (escritorio y tablet >= 640px)
-     ========================================================================== -->
-<header class="app-header border-b border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
-  <div class="flex items-center gap-2 px-3 py-2">
-    <div class="flex items-center gap-2">
-      <div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-indigo-600 text-white">
-        <i data-lucide="sigma" class="h-4 w-4"></i>
-      </div>
-      <div class="hidden leading-tight sm:block">
-        <div class="text-[13px] font-bold">Editor LaTeX / Markdown</div>
-        <div class="text-[10.5px] text-slate-500 dark:text-slate-400">Vista previa A4 · KaTeX</div>
-      </div>
+  <!-- ================= BARRA SUPERIOR ================= -->
+  <header class="appbar no-print">
+    <div class="brand" aria-label="Lantex Editor">
+      <span class="brand-mark" aria-hidden="true">L</span>
+      <span class="brand-name">Lantex<span>editor</span></span>
     </div>
 
-    <!-- Toolbar de formato (se construye por JS; se reutiliza en el bottom-sheet) -->
-    <div id="toolbarHost" class="hidden flex-1 items-center gap-1 md:flex"></div>
-
-    <div class="ml-auto flex items-center gap-1">
-      <button type="button" class="tbtn" data-action="copy-markdown" title="Copiar Markdown (Ctrl+Shift+C)" aria-label="Copiar Markdown">
-        <i data-lucide="clipboard-copy" class="h-4 w-4"></i><span class="hidden xl:inline">Markdown</span>
-      </button>
-      <button type="button" class="tbtn" data-action="copy-latex" title="Copiar LaTeX puro" aria-label="Copiar LaTeX puro">
-        <i data-lucide="file-code-2" class="h-4 w-4"></i><span class="hidden xl:inline">LaTeX</span>
-      </button>
-      <button type="button" class="tbtn" data-action="download-md" title="Descargar .md" aria-label="Descargar archivo Markdown">
-        <i data-lucide="download" class="h-4 w-4"></i>
-      </button>
-      <button type="button" class="tbtn" data-action="open-examples" title="Cargar ejemplo" aria-label="Cargar ejemplo">
-        <i data-lucide="book-open" class="h-4 w-4"></i><span class="hidden xl:inline">Ejemplo</span>
-      </button>
-      <button type="button" class="tbtn" data-action="open-pdf" title="Exportar PDF" aria-label="Exportar PDF">
-        <i data-lucide="file-down" class="h-4 w-4"></i><span class="hidden xl:inline">PDF</span>
-      </button>
-      <button type="button" class="tbtn" data-action="settings" title="Configuración" aria-label="Abrir configuración">
-        <i data-lucide="settings-2" class="h-4 w-4"></i>
-      </button>
-      <button type="button" class="tbtn" data-action="toggle-theme" title="Cambiar tema claro/oscuro" aria-label="Cambiar tema claro u oscuro">
-        <i data-lucide="sun-moon" class="h-4 w-4"></i>
-      </button>
-      <!-- Toggle del bottom-sheet (solo < 640px) -->
-      <button type="button" class="tbtn md:hidden" data-action="toggle-sheet" title="Herramientas y símbolos"
-              aria-label="Mostrar u ocultar herramientas" aria-expanded="false" aria-controls="bottomSheet">
-        <i data-lucide="chevron-up" class="h-4 w-4"></i>
-      </button>
-    </div>
-  </div>
-
-  <!-- Barra de símbolos -->
-  <div class="hidden border-t border-slate-200/80 px-3 py-1.5 md:block dark:border-slate-800/80">
-    <div class="flex items-start gap-1.5">
-      <span class="mt-[6px] shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Símbolos</span>
-      <div id="symbolsHost" class="flex flex-1 items-center gap-1 overflow-x-auto pb-0.5"></div>
-    </div>
-  </div>
-</header>
-
-<!-- ==========================================================================
-     LAYOUT PRINCIPAL
-     ========================================================================== -->
-<main class="app-main mx-auto w-full max-w-[1900px] px-2 pb-2 pt-2 md:px-3">
-
-  <!-- Pestañas: solo < 1024px (una columna) -->
-  <div class="mb-2 flex items-center gap-1 rounded-lg bg-slate-200/70 p-1 lg:hidden dark:bg-slate-800/70">
-    <button type="button" class="tbtn flex-1" data-action="tab" data-tab="editor" aria-pressed="true">Editor</button>
-    <button type="button" class="tbtn flex-1" data-action="tab" data-tab="preview" aria-pressed="false">Vista previa</button>
-  </div>
-
-  <div id="appGrid" class="grid gap-3 lg:grid-cols-2">
-
-    <!-- PANEL IZQUIERDO: EDITOR -->
-    <section id="panelEditor" aria-label="Editor de Markdown y LaTeX">
-      <div class="mb-1.5 flex items-center justify-between px-1">
-        <div class="flex items-center gap-2 text-[12px] font-bold text-slate-500 dark:text-slate-400">
-          <i data-lucide="square-pen" class="h-3.5 w-3.5"></i> Editor
-        </div>
-        <div class="flex items-center gap-1.5">
-          <button type="button" class="tbtn !h-7 !min-w-7 !px-1.5" data-action="toggle-linenumbers"
-                  title="Mostrar u ocultar números de línea" aria-label="Mostrar u ocultar números de línea" aria-pressed="false">
-            <i data-lucide="list-ordered" class="h-3.5 w-3.5"></i>
-          </button>
-          <button type="button" class="tbtn !h-7 !min-w-7 !px-1.5" data-action="new-doc" title="Nuevo documento" aria-label="Nuevo documento">
-            <i data-lucide="file-plus-2" class="h-3.5 w-3.5"></i>
-          </button>
-        </div>
-      </div>
-
-      <div class="editor-shell">
-        <div id="gutter" aria-hidden="true" style="display:none"></div>
-        <textarea id="editor" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
-          aria-label="Editor de Markdown y LaTeX"
-          placeholder="Escribe aquí tu Markdown con LaTeX…"></textarea>
-      </div>
-      <input type="range" id="hScroll" min="0" max="0" value="0" step="1" aria-label="Desplazamiento horizontal del editor" title="Desplazamiento horizontal" />
-
-      <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[11px] text-slate-500 dark:text-slate-400">
-        <span id="statWords" class="metric">0 palabras</span>
-        <span id="statChars" class="metric">0 caracteres</span>
-        <span id="statLines" class="metric">1 línea</span>
-        <span id="statPages" class="metric">1 página</span>
-        <span id="statErrors" class="metric hidden">0 fórmulas con error</span>
-        <span class="ml-auto flex items-center gap-1" id="saveState">
-          <i data-lucide="check" class="h-3 w-3"></i><span>Guardado</span>
+    <div class="title-area">
+      <input id="docTitle" class="doc-title" type="text" maxlength="160" value=""
+             placeholder="Documento sin título" aria-label="Nombre del documento" autocomplete="off" />
+      <div class="title-meta">
+        <span id="saveState" class="save-state" data-state="saved">
+          <span class="save-dot" aria-hidden="true"></span>
+          <span id="saveStateText">Guardado en este navegador</span>
         </span>
+        <span class="dot-sep" aria-hidden="true">·</span>
+        <span id="docMeta">A4 · 0 páginas</span>
       </div>
-    </section>
+    </div>
 
-    <!-- PANEL DERECHO: PREVIEW PAGINADO -->
-    <section id="panelPreview" class="mt-3 lg:mt-0" aria-label="Vista previa paginada A4">
-      <div class="mb-1.5 flex items-center justify-between px-1">
-        <div class="flex items-center gap-2 text-[12px] font-bold text-slate-500 dark:text-slate-400">
-          <i data-lucide="files" class="h-3.5 w-3.5"></i> Vista previa A4
+    <div class="appbar-actions">
+      <button type="button" class="icon-btn appbar-icon" data-action="undo" title="Deshacer (Ctrl+Z)" aria-label="Deshacer">
+        <i data-lucide="undo-2" class="icon"></i>
+      </button>
+      <button type="button" class="icon-btn appbar-icon" data-action="redo" title="Rehacer (Ctrl+Y)" aria-label="Rehacer">
+        <i data-lucide="redo-2" class="icon"></i>
+      </button>
+      <span class="toolbar-sep" aria-hidden="true"></span>
+      <button type="button" class="icon-btn appbar-icon" data-action="toggle-theme" title="Cambiar tema claro/oscuro" aria-label="Cambiar tema claro u oscuro">
+        <i data-lucide="sun-moon" class="icon"></i>
+      </button>
+      <button type="button" class="icon-btn appbar-icon" data-action="toggle-inspector" title="Mostrar u ocultar panel lateral" aria-label="Mostrar u ocultar panel lateral" aria-pressed="false">
+        <i data-lucide="panel-right" class="icon"></i>
+      </button>
+      <button type="button" class="text-btn hide-sm" data-action="open-print" title="Imprimir o guardar como PDF con el motor del navegador">
+        <i data-lucide="printer" class="icon"></i><span>Imprimir</span>
+      </button>
+      <button type="button" class="text-btn primary" data-action="open-pdf" title="Exportar el documento a PDF">
+        <i data-lucide="file-down" class="icon"></i><span>PDF</span>
+      </button>
+      <div class="menu-wrap">
+        <button type="button" class="icon-btn appbar-icon" data-menu-toggle="fileMenu" title="Archivo y opciones" aria-label="Archivo y opciones" aria-expanded="false" aria-haspopup="true">
+          <i data-lucide="ellipsis" class="icon"></i>
+        </button>
+        <div class="popover menu file-menu" id="fileMenu" hidden>
+          <div class="menu-title">Documento</div>
+          <button type="button" class="menu-item" data-action="new-doc"><i data-lucide="file-plus-2" class="icon"></i><span>Nuevo documento</span></button>
+          <button type="button" class="menu-item" data-action="open-examples"><i data-lucide="book-open" class="icon"></i><span>Cargar ejemplo</span></button>
+          <button type="button" class="menu-item" data-action="import-md"><i data-lucide="folder-open" class="icon"></i><span>Importar Markdown…</span></button>
+          <div class="menu-sep"></div>
+          <div class="menu-title">Copiar / exportar</div>
+          <button type="button" class="menu-item" data-action="copy-markdown"><i data-lucide="clipboard-copy" class="icon"></i><span>Copiar como Markdown</span><kbd>Ctrl+Shift+C</kbd></button>
+          <button type="button" class="menu-item" data-action="copy-latex"><i data-lucide="file-code-2" class="icon"></i><span>Copiar como LaTeX</span></button>
+          <button type="button" class="menu-item" data-action="download-md"><i data-lucide="download" class="icon"></i><span>Descargar .md</span></button>
+          <button type="button" class="menu-item" data-action="open-print"><i data-lucide="printer" class="icon"></i><span>Imprimir / Guardar como PDF</span><kbd>Ctrl+P</kbd></button>
+          <div class="menu-sep"></div>
+          <button type="button" class="menu-item" data-action="insert-header"><i data-lucide="bookmark" class="icon"></i><span>Insertar cabecera de página</span></button>
+          <button type="button" class="menu-item" data-action="open-settings"><i data-lucide="settings-2" class="icon"></i><span>Configuración</span></button>
         </div>
-        <div class="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-          <span class="metric" id="zoomLabel">100%</span>
-          <button type="button" class="tbtn !h-7 !min-w-7 !px-1.5" data-action="fit-zoom" title="Ajustar al ancho" aria-label="Ajustar vista al ancho">
-            <i data-lucide="maximize" class="h-3.5 w-3.5"></i>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= BARRA DE FORMATO ================= -->
+  <div class="formatbar no-print" id="formatBar" role="toolbar" aria-label="Herramientas de formato">
+
+    <div class="fmt-group" aria-label="Historial">
+      <div class="fmt-controls">
+        <button type="button" class="icon-btn" data-action="undo" title="Deshacer (Ctrl+Z)" aria-label="Deshacer"><i data-lucide="undo-2" class="icon"></i></button>
+        <button type="button" class="icon-btn" data-action="redo" title="Rehacer (Ctrl+Y)" aria-label="Rehacer"><i data-lucide="redo-2" class="icon"></i></button>
+      </div>
+      <div class="fmt-label">Historial</div>
+    </div>
+
+    <div class="fmt-group" aria-label="Estilo de párrafo">
+      <div class="fmt-controls">
+        <select id="blockStyle" class="compact-select style-select" title="Estilo de párrafo" aria-label="Estilo de párrafo">
+          <option value="p">Normal</option>
+          <option value="h1">Título 1</option>
+          <option value="h2">Título 2</option>
+          <option value="h3">Título 3</option>
+          <option value="blockquote">Cita</option>
+          <option value="pre">Código</option>
+        </select>
+      </div>
+      <div class="fmt-label">Estilo</div>
+    </div>
+
+    <div class="fmt-group" aria-label="Fuente">
+      <div class="fmt-controls">
+        <select id="fontFamily" class="compact-select font-select" title="Tipo de fuente" aria-label="Tipo de fuente">
+          <option value="">Fuente del documento</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Arial">Arial</option>
+          <option value="Calibri">Calibri</option>
+          <option value="Cambria">Cambria</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Trebuchet MS">Trebuchet MS</option>
+          <option value="Courier New">Courier New</option>
+        </select>
+
+        <div class="size-combo">
+          <input id="fontSizeInput" class="combo-input" type="text" inputmode="decimal" value="11.5"
+                 list="fontSizeList" title="Tamaño de fuente (pt)" aria-label="Tamaño de fuente en puntos" autocomplete="off" />
+          <datalist id="fontSizeList">
+            <option value="8"></option><option value="9"></option><option value="10"></option>
+            <option value="10.5"></option><option value="11"></option><option value="11.5"></option>
+            <option value="12"></option><option value="14"></option><option value="16"></option>
+            <option value="18"></option><option value="20"></option><option value="24"></option>
+            <option value="28"></option><option value="32"></option><option value="36"></option>
+            <option value="48"></option><option value="60"></option><option value="72"></option>
+          </datalist>
+          <button type="button" class="step-btn" data-action="font-smaller" title="Disminuir tamaño de fuente" aria-label="Disminuir tamaño de fuente"><i data-lucide="minus" class="icon-xs"></i></button>
+          <button type="button" class="step-btn" data-action="font-larger" title="Aumentar tamaño de fuente" aria-label="Aumentar tamaño de fuente"><i data-lucide="plus" class="icon-xs"></i></button>
+        </div>
+
+        <button type="button" class="icon-btn fmt-toggle" data-action="bold" title="Negrita (Ctrl+B)" aria-label="Negrita" aria-pressed="false"><i data-lucide="bold" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="italic" title="Cursiva (Ctrl+I)" aria-label="Cursiva" aria-pressed="false"><i data-lucide="italic" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="underline" title="Subrayado (Ctrl+U)" aria-label="Subrayado" aria-pressed="false"><i data-lucide="underline" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="strike" title="Tachado" aria-label="Tachado" aria-pressed="false"><i data-lucide="strikethrough" class="icon"></i></button>
+
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn color-btn" data-menu-toggle="textColorMenu" title="Color del texto" aria-label="Color del texto" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="palette" class="icon"></i><span class="color-bar" id="textColorBar" style="--sw:#1f2937"></span>
           </button>
+          <div class="popover color-popover" id="textColorMenu" hidden>
+            <div class="popover-title">Color del texto</div>
+            <div class="swatches" id="textSwatches"></div>
+            <button type="button" class="menu-item compact" data-color-custom="foreColor"><i data-lucide="plus" class="icon"></i><span>Más colores…</span></button>
+          </div>
+        </div>
+
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn color-btn" data-menu-toggle="highlightMenu" title="Color de resaltado" aria-label="Color de resaltado" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="highlighter" class="icon"></i><span class="color-bar" id="highlightBar" style="--sw:#fef08a"></span>
+          </button>
+          <div class="popover color-popover" id="highlightMenu" hidden>
+            <div class="popover-title">Color de resaltado</div>
+            <div class="swatches" id="highlightSwatches"></div>
+            <button type="button" class="menu-item compact" data-color-custom="hiliteColor"><i data-lucide="plus" class="icon"></i><span>Más colores…</span></button>
+          </div>
+        </div>
+
+        <button type="button" class="icon-btn" data-action="clear-format" title="Borrar formato" aria-label="Borrar formato"><i data-lucide="eraser" class="icon"></i></button>
+      </div>
+      <div class="fmt-label">Fuente</div>
+    </div>
+
+    <div class="fmt-group" aria-label="Párrafo">
+      <div class="fmt-controls">
+        <button type="button" class="icon-btn fmt-toggle" data-action="align-left" title="Alinear a la izquierda" aria-label="Alinear a la izquierda" aria-pressed="false"><i data-lucide="align-left" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="align-center" title="Centrar" aria-label="Centrar" aria-pressed="false"><i data-lucide="align-center" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="align-right" title="Alinear a la derecha" aria-label="Alinear a la derecha" aria-pressed="false"><i data-lucide="align-right" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="align-justify" title="Justificar" aria-label="Justificar" aria-pressed="false"><i data-lucide="align-justify" class="icon"></i></button>
+        <span class="toolbar-sep" aria-hidden="true"></span>
+        <button type="button" class="icon-btn fmt-toggle" data-action="bullet-list" title="Lista con viñetas" aria-label="Lista con viñetas" aria-pressed="false"><i data-lucide="list" class="icon"></i></button>
+        <button type="button" class="icon-btn fmt-toggle" data-action="number-list" title="Lista numerada" aria-label="Lista numerada" aria-pressed="false"><i data-lucide="list-ordered" class="icon"></i></button>
+        <button type="button" class="icon-btn" data-action="outdent" title="Disminuir sangría" aria-label="Disminuir sangría"><i data-lucide="indent-decrease" class="icon"></i></button>
+        <button type="button" class="icon-btn" data-action="indent" title="Aumentar sangría" aria-label="Aumentar sangría"><i data-lucide="indent-increase" class="icon"></i></button>
+
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn with-caret" data-menu-toggle="spacingMenu" title="Interlineado y espaciado" aria-label="Interlineado y espaciado entre párrafos" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="wrap-text" class="icon"></i><i data-lucide="chevron-down" class="icon-caret"></i>
+          </button>
+          <div class="popover spacing-menu" id="spacingMenu" hidden>
+            <div class="popover-title">Interlineado</div>
+            <div class="segmented small" id="lineSpacingGroup">
+              <button type="button" data-line-spacing="1">1.0</button>
+              <button type="button" data-line-spacing="1.15">1.15</button>
+              <button type="button" data-line-spacing="1.5">1.5</button>
+              <button type="button" data-line-spacing="2">2.0</button>
+            </div>
+            <div class="popover-title spaced">Espaciado entre párrafos</div>
+            <div class="segmented small" id="paraSpacingGroup">
+              <button type="button" data-para-spacing="0">0</button>
+              <button type="button" data-para-spacing="4">4</button>
+              <button type="button" data-para-spacing="8">8</button>
+              <button type="button" data-para-spacing="12">12</button>
+              <button type="button" data-para-spacing="18">18</button>
+            </div>
+            <p class="popover-help">Los valores de espaciado entre párrafos se expresan en puntos (pt).</p>
+          </div>
         </div>
       </div>
-      <div id="pagesWrap" class="overflow-auto rounded-xl bg-slate-200/60 dark:bg-slate-900/60">
-        <div id="pagesSizer"><div id="pages"></div></div>
-      </div>
-    </section>
-  </div>
-</main>
+      <div class="fmt-label">Párrafo</div>
+    </div>
 
-<!-- ==========================================================================
-     BOTTOM SHEET (móvil < 640px)
-     ========================================================================== -->
-<div id="sheetScrim" class="hidden"></div>
-<div id="bottomSheet" class="hidden" role="dialog" aria-label="Barra de herramientas">
-  <button type="button" id="sheetHandle" data-action="toggle-sheet" aria-expanded="false" aria-controls="bottomSheet">
-    <span class="bar"></span>
-    <span class="txt">Herramientas y símbolos</span>
-  </button>
-  <div id="sheetBody">
-    <div class="mb-2">
-      <div class="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Formato</div>
-      <div id="toolbarHostMobile" class="flex flex-wrap gap-1"></div>
+    <div class="fmt-group" aria-label="Insertar">
+      <div class="fmt-controls">
+        <button type="button" class="icon-btn labeled" data-action="insert-image" title="Insertar imagen" aria-label="Insertar imagen"><i data-lucide="image" class="icon"></i><span>Imagen</span></button>
+        <button type="button" class="icon-btn labeled" data-action="insert-table" title="Insertar tabla" aria-label="Insertar tabla"><i data-lucide="table" class="icon"></i><span>Tabla</span></button>
+        <button type="button" class="icon-btn" data-action="insert-link" title="Insertar enlace (Ctrl+K)" aria-label="Insertar enlace"><i data-lucide="link" class="icon"></i></button>
+        <button type="button" class="icon-btn" data-action="insert-formula" title="Insertar fórmula LaTeX" aria-label="Insertar fórmula LaTeX"><i data-lucide="sigma" class="icon"></i></button>
+        <button type="button" class="icon-btn" data-action="insert-pagebreak" title="Insertar salto de página" aria-label="Insertar salto de página"><i data-lucide="scissors" class="icon"></i></button>
+      </div>
+      <div class="fmt-label">Insertar</div>
     </div>
-    <div class="mb-2">
-      <div class="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Símbolos</div>
-      <div id="symbolsHostMobile" class="flex flex-wrap gap-1"></div>
+
+    <div class="fmt-group" aria-label="Página">
+      <div class="fmt-controls">
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn labeled" data-menu-toggle="pageMenu" title="Configurar página" aria-label="Configurar página" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="file-text" class="icon"></i><span>Página</span><i data-lucide="chevron-down" class="icon-caret"></i>
+          </button>
+          <div class="popover page-menu" id="pageMenu" hidden>
+            <div class="popover-title">Configuración de página</div>
+            <label class="field-row">
+              <span>Tamaño</span>
+              <select data-setting="paper" class="field compact-field">
+                <option value="a4">A4</option>
+                <option value="letter">Carta</option>
+                <option value="legal">Oficio</option>
+                <option value="a5">A5</option>
+              </select>
+            </label>
+            <label class="field-row">
+              <span>Orientación</span>
+              <select data-setting="orientation" class="field compact-field">
+                <option value="portrait">Vertical</option>
+                <option value="landscape">Horizontal</option>
+              </select>
+            </label>
+            <label class="field-row">
+              <span>Márgenes</span>
+              <select id="marginPresetToolbar" class="field compact-field">
+                <option value="normal">Normales (2,5 cm)</option>
+                <option value="narrow">Estrechos (1,27 cm)</option>
+                <option value="moderate">Moderados</option>
+                <option value="wide">Amplios</option>
+                <option value="custom">Personalizados</option>
+              </select>
+            </label>
+            <button type="button" class="btn block" data-open-inspector="page"><i data-lucide="panel-right" class="icon"></i>Más opciones de página</button>
+            <button type="button" class="btn block subtle" data-action="reset-page"><i data-lucide="rotate-ccw" class="icon"></i>Restablecer A4</button>
+          </div>
+        </div>
+      </div>
+      <div class="fmt-label">Página</div>
     </div>
-    <div class="grid grid-cols-2 gap-1.5 border-t border-slate-200 pt-2 dark:border-slate-800">
-      <button type="button" class="tbtn" data-action="copy-markdown"><i data-lucide="clipboard-copy" class="h-4 w-4"></i>Markdown</button>
-      <button type="button" class="tbtn" data-action="copy-latex"><i data-lucide="file-code-2" class="h-4 w-4"></i>LaTeX</button>
-      <button type="button" class="tbtn" data-action="download-md"><i data-lucide="download" class="h-4 w-4"></i>.md</button>
-      <button type="button" class="tbtn" data-action="open-examples"><i data-lucide="book-open" class="h-4 w-4"></i>Ejemplo</button>
-      <button type="button" class="tbtn primary col-span-2" data-action="open-pdf"><i data-lucide="file-down" class="h-4 w-4"></i>Exportar PDF</button>
+
+    <div class="fmt-group image-group" id="imageGroup" aria-label="Imagen" hidden>
+      <div class="fmt-controls">
+        <span class="ctx-badge"><i data-lucide="image" class="icon-xs"></i>Imagen</span>
+        <label class="inline-field">
+          <span>Ajuste</span>
+          <select class="compact-select image-wrap-select" data-image-prop="wrap" title="Ajuste del texto" aria-label="Ajuste del texto">
+            <option value="inline">En línea</option>
+            <option value="square">Cuadrado</option>
+            <option value="front">Delante del texto</option>
+            <option value="behind">Detrás del texto</option>
+          </select>
+        </label>
+        <label class="inline-field">
+          <span>Alinear</span>
+          <select class="compact-select image-align-select" data-image-prop="align" title="Alineación de la imagen" aria-label="Alineación de la imagen">
+            <option value="left">Izquierda</option>
+            <option value="center">Centro</option>
+            <option value="right">Derecha</option>
+          </select>
+        </label>
+        <button type="button" class="icon-btn" data-action="image-copy" title="Duplicar imagen" aria-label="Duplicar imagen"><i data-lucide="copy" class="icon"></i></button>
+        <button type="button" class="icon-btn danger-hover" data-action="image-delete" title="Eliminar imagen" aria-label="Eliminar imagen"><i data-lucide="trash-2" class="icon"></i></button>
+      </div>
+      <div class="fmt-label">Imagen</div>
+    </div>
+
+    <div class="fmt-group" aria-label="Más opciones">
+      <div class="fmt-controls">
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn" data-menu-toggle="insertMenu" title="Más opciones de inserción" aria-label="Más opciones de inserción" aria-haspopup="true" aria-expanded="false">
+            <i data-lucide="ellipsis" class="icon"></i>
+          </button>
+          <div class="popover menu" id="insertMenu" hidden>
+            <button type="button" class="menu-item" data-action="insert-image"><i data-lucide="image" class="icon"></i><span>Imagen desde el equipo</span></button>
+            <button type="button" class="menu-item" data-action="insert-table"><i data-lucide="table" class="icon"></i><span>Tabla</span></button>
+            <button type="button" class="menu-item" data-action="insert-formula"><i data-lucide="sigma" class="icon"></i><span>Fórmula LaTeX</span></button>
+            <button type="button" class="menu-item" data-action="insert-header"><i data-lucide="bookmark" class="icon"></i><span>Cabecera de página</span></button>
+            <div class="menu-sep"></div>
+            <button type="button" class="menu-item" data-action="open-examples"><i data-lucide="book-open" class="icon"></i><span>Cargar ejemplo</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="fmt-label">Más</div>
     </div>
   </div>
+
+  <!-- ================= ÁREA DE TRABAJO ================= -->
+  <div class="workspace">
+    <main class="canvas" id="pagesWrap" aria-label="Documento editable en páginas A4">
+      <div id="pagesSizer"><div id="pages"></div></div>
+      <div id="emptyHint" class="empty-hint" hidden>
+        <div class="empty-hint-title">Tu documento empieza aquí</div>
+        <div>Haz clic sobre la hoja y escribe. También puedes pegar texto o Markdown generado por una IA.</div>
+      </div>
+    </main>
+
+    <aside class="inspector no-print" id="inspector" aria-label="Panel de propiedades" hidden>
+      <div class="inspector-head">
+        <h2>Propiedades</h2>
+        <button type="button" class="icon-btn" data-action="toggle-inspector" title="Cerrar panel" aria-label="Cerrar panel"><i data-lucide="x" class="icon"></i></button>
+      </div>
+      <div class="inspector-body">
+
+        <section class="inspector-section" id="inspectorImage" hidden>
+          <h3><i data-lucide="image" class="icon-xs"></i> Imagen seleccionada</h3>
+          <label class="field-row">
+            <span>Ajuste</span>
+            <select class="field" data-image-prop="wrap">
+              <option value="inline">En línea con el texto</option>
+              <option value="square">Cuadrado</option>
+              <option value="front">Delante del texto</option>
+              <option value="behind">Detrás del texto</option>
+            </select>
+          </label>
+          <label class="field-row">
+            <span>Alineación</span>
+            <select class="field" data-image-prop="align">
+              <option value="left">Izquierda</option>
+              <option value="center">Centrada</option>
+              <option value="right">Derecha</option>
+            </select>
+          </label>
+          <div class="field-grid two">
+            <label class="stacked-field">
+              <span>Ancho (px)</span>
+              <input class="field" type="number" min="16" step="1" data-image-prop="width" />
+            </label>
+            <label class="stacked-field">
+              <span>Alto (px)</span>
+              <input class="field" type="number" min="16" step="1" data-image-prop="height" />
+            </label>
+          </div>
+          <label class="stacked-field">
+            <span>Texto alternativo</span>
+            <input class="field" type="text" maxlength="220" data-image-prop="alt" placeholder="Describe la imagen" />
+          </label>
+          <div class="button-row">
+            <button type="button" class="btn" data-action="image-reset-size"><i data-lucide="rotate-ccw" class="icon"></i>Ajustar al ancho</button>
+            <button type="button" class="btn" data-action="image-copy"><i data-lucide="copy" class="icon"></i>Duplicar</button>
+            <button type="button" class="btn danger" data-action="image-delete"><i data-lucide="trash-2" class="icon"></i>Eliminar</button>
+          </div>
+          <p class="hint">Arrastra la imagen para moverla. Usa los tiradores para redimensionarla manteniendo la proporción.</p>
+        </section>
+
+        <section class="inspector-section" id="inspectorPage">
+          <h3><i data-lucide="file-text" class="icon-xs"></i> Página</h3>
+          <label class="field-row">
+            <span>Tamaño de papel</span>
+            <select class="field" data-setting="paper">
+              <option value="a4">A4 (210 × 297 mm)</option>
+              <option value="letter">Carta (216 × 279 mm)</option>
+              <option value="legal">Oficio (216 × 356 mm)</option>
+              <option value="a5">A5 (148 × 210 mm)</option>
+            </select>
+          </label>
+          <div class="field-row">
+            <span>Orientación</span>
+            <div class="segmented" id="orientationGroup">
+              <button type="button" data-orientation="portrait">Vertical</button>
+              <button type="button" data-orientation="landscape">Horizontal</button>
+            </div>
+          </div>
+          <label class="field-row">
+            <span>Márgenes</span>
+            <select class="field" id="marginPreset">
+              <option value="normal">Normales (2,5 cm)</option>
+              <option value="narrow">Estrechos (1,27 cm)</option>
+              <option value="moderate">Moderados</option>
+              <option value="wide">Amplios</option>
+              <option value="custom">Personalizados</option>
+            </select>
+          </label>
+          <div class="field-grid four">
+            <label class="stacked-field"><span>Sup. (mm)</span><input class="field margin-input" type="number" min="0" max="60" step="1" data-margin="top" /></label>
+            <label class="stacked-field"><span>Inf. (mm)</span><input class="field margin-input" type="number" min="0" max="60" step="1" data-margin="bottom" /></label>
+            <label class="stacked-field"><span>Izq. (mm)</span><input class="field margin-input" type="number" min="0" max="60" step="1" data-margin="left" /></label>
+            <label class="stacked-field"><span>Der. (mm)</span><input class="field margin-input" type="number" min="0" max="60" step="1" data-margin="right" /></label>
+          </div>
+          <div class="button-row">
+            <button type="button" class="btn subtle" data-action="reset-page"><i data-lucide="rotate-ccw" class="icon"></i>Restablecer A4</button>
+          </div>
+        </section>
+
+        <section class="inspector-section">
+          <h3><i data-lucide="type" class="icon-xs"></i> Tipografía del documento</h3>
+          <label class="field-row">
+            <span>Fuente base</span>
+            <select class="field" id="baseFontFamily">
+              <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+              <option value="'Times New Roman', Times, serif">Times New Roman</option>
+              <option value="'Palatino Linotype', 'Book Antiqua', Palatino, serif">Palatino</option>
+              <option value="Cambria, Georgia, serif">Cambria</option>
+              <option value="Calibri, Candara, Segoe UI, sans-serif">Calibri</option>
+              <option value="Arial, Helvetica, sans-serif">Arial</option>
+              <option value="Verdana, Geneva, sans-serif">Verdana</option>
+            </select>
+          </label>
+          <label class="field-row">
+            <span>Tamaño base</span>
+            <div class="input-unit">
+              <input class="field" id="baseFontSize" type="number" min="7" max="24" step="0.5" />
+              <span>pt</span>
+            </div>
+          </label>
+        </section>
+
+        <section class="inspector-section">
+          <h3><i data-lucide="bookmark" class="icon-xs"></i> Encabezado y pie</h3>
+          <label class="stacked-field">
+            <span>Encabezado (izquierda)</span>
+            <input class="field" id="cfgHeader" type="text" maxlength="180" placeholder="Ej.: Cálculo II — Segundo parcial" />
+          </label>
+          <label class="stacked-field">
+            <span>Pie de página (izquierda)</span>
+            <input class="field" id="cfgFooter" type="text" maxlength="180" placeholder="Ej.: Universidad, 2026" />
+          </label>
+          <p class="hint">El número de página se añade automáticamente a la derecha. Todo el encabezado y el pie se excluyen de la zona de edición.</p>
+        </section>
+
+        <section class="inspector-section">
+          <h3><i data-lucide="info" class="icon-xs"></i> Documento</h3>
+          <div class="stat-list">
+            <div><span>Páginas</span><strong id="inspectorPages">1</strong></div>
+            <div><span>Palabras</span><strong id="inspectorWords">0</strong></div>
+            <div><span>Caracteres</span><strong id="inspectorChars">0</strong></div>
+            <div><span>Imágenes</span><strong id="inspectorImages">0</strong></div>
+            <div><span>Fórmulas con error</span><strong id="inspectorErrors">0</strong></div>
+          </div>
+          <div class="button-row">
+            <button type="button" class="btn" data-action="copy-markdown"><i data-lucide="clipboard-copy" class="icon"></i>Copiar Markdown</button>
+            <button type="button" class="btn" data-action="download-md"><i data-lucide="download" class="icon"></i>Descargar .md</button>
+          </div>
+          <p class="hint">El documento, con sus imágenes y ajustes, se guarda automáticamente en este navegador. No se envía a ningún servidor.</p>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ================= BARRA DE ESTADO ================= -->
+  <footer class="statusbar no-print">
+    <div class="status-left">
+      <span id="pageIndicator" class="status-item">Página 1 de 1</span>
+      <span class="status-sep" aria-hidden="true"></span>
+      <span id="wordCount" class="status-item">0 palabras</span>
+      <span id="charCount" class="status-item hide-sm">0 caracteres</span>
+      <button type="button" id="errorBadge" class="status-item error-badge" hidden title="Hay fórmulas LaTeX con errores de sintaxis"><i data-lucide="alert-triangle" class="icon-xs"></i><span id="errorCount">0</span></button>
+    </div>
+    <div class="status-right">
+      <span class="status-item hide-md" id="zoomModeLabel">Ajustado al ancho</span>
+      <div class="zoom-controls" role="group" aria-label="Zoom">
+        <button type="button" class="status-btn" data-action="zoom-out" title="Reducir zoom" aria-label="Reducir zoom"><i data-lucide="minus" class="icon-xs"></i></button>
+        <button type="button" class="zoom-value" data-action="zoom-fit" title="Ajustar al ancho" aria-label="Ajustar al ancho"><span id="zoomLabel">100%</span></button>
+        <button type="button" class="status-btn" data-action="zoom-in" title="Aumentar zoom" aria-label="Aumentar zoom"><i data-lucide="plus" class="icon-xs"></i></button>
+        <button type="button" class="status-btn" data-action="zoom-fit" title="Ajustar al ancho" aria-label="Ajustar al ancho"><i data-lucide="maximize" class="icon-xs"></i></button>
+      </div>
+    </div>
+  </footer>
 </div>
 
-<!-- ==========================================================================
-     DIÁLOGOS
-     ========================================================================== -->
+<!-- ================= CAPAS DE INTERACCIÓN ================= -->
+<div id="imageOverlay" class="image-overlay" hidden aria-hidden="true">
+  <div class="image-outline"></div>
+  <button type="button" class="img-handle" data-handle="nw" aria-label="Redimensionar desde la esquina superior izquierda"></button>
+  <button type="button" class="img-handle" data-handle="n" aria-label="Redimensionar desde arriba"></button>
+  <button type="button" class="img-handle" data-handle="ne" aria-label="Redimensionar desde la esquina superior derecha"></button>
+  <button type="button" class="img-handle" data-handle="e" aria-label="Redimensionar desde la derecha"></button>
+  <button type="button" class="img-handle" data-handle="se" aria-label="Redimensionar desde la esquina inferior derecha"></button>
+  <button type="button" class="img-handle" data-handle="s" aria-label="Redimensionar desde abajo"></button>
+  <button type="button" class="img-handle" data-handle="sw" aria-label="Redimensionar desde la esquina inferior izquierda"></button>
+  <button type="button" class="img-handle" data-handle="w" aria-label="Redimensionar desde la izquierda"></button>
+</div>
+<div id="dragIndicator" class="drag-indicator" hidden aria-hidden="true"></div>
+<div id="dropOverlay" class="drop-overlay" hidden aria-hidden="true"><div><i data-lucide="image" class="icon"></i> Suelta la imagen para insertarla</div></div>
+<div id="toasts" class="toasts no-print" aria-live="polite"></div>
+
+<!-- ================= DIÁLOGOS ================= -->
+<dialog id="dlgTable" class="app-dialog">
+  <form id="formTable" class="dialog-form">
+    <div class="dialog-head">
+      <h2><i data-lucide="table" class="icon"></i> Insertar tabla</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar"><i data-lucide="x" class="icon"></i></button>
+    </div>
+    <div class="dialog-body">
+      <div class="field-grid two">
+        <label class="stacked-field"><span>Filas</span><input id="tableRows" class="field" type="number" min="1" max="30" value="3" required /></label>
+        <label class="stacked-field"><span>Columnas</span><input id="tableCols" class="field" type="number" min="1" max="12" value="3" required /></label>
+      </div>
+      <label class="check-row"><input id="tableHeader" type="checkbox" checked /> <span>Incluir fila de encabezado</span></label>
+      <p class="hint">Después de insertar la tabla, usa Tab para pasar a la siguiente celda. Al final de la tabla se añadirá una fila nueva.</p>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancelar</button>
+      <button type="submit" class="btn primary">Insertar tabla</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgLink" class="app-dialog">
+  <form id="formLink" class="dialog-form">
+    <div class="dialog-head">
+      <h2><i data-lucide="link" class="icon"></i> Insertar enlace</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar"><i data-lucide="x" class="icon"></i></button>
+    </div>
+    <div class="dialog-body">
+      <label class="stacked-field"><span>Texto visible</span><input id="linkText" class="field" type="text" maxlength="240" placeholder="Texto del enlace" /></label>
+      <label class="stacked-field"><span>Dirección (URL)</span><input id="linkUrl" class="field" type="text" placeholder="https://ejemplo.com" required /></label>
+      <p class="hint">Con la URL vacía puedes quitar el enlace del texto seleccionado. En el documento, usa Ctrl+clic para abrir un enlace.</p>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancelar</button>
+      <button type="button" class="btn" data-action="remove-link">Quitar enlace</button>
+      <button type="submit" class="btn primary">Aplicar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgFormula" class="app-dialog wide-dialog">
+  <form id="formFormula" class="dialog-form">
+    <div class="dialog-head">
+      <h2><i data-lucide="sigma" class="icon"></i> Fórmula LaTeX</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar"><i data-lucide="x" class="icon"></i></button>
+    </div>
+    <div class="dialog-body formula-layout">
+      <div class="formula-main">
+        <label class="stacked-field">
+          <span>Expresión LaTeX</span>
+          <textarea id="formulaTex" class="field code-field" rows="4" spellcheck="false" placeholder="\int_0^1 x^2\,dx = \frac{1}{3}"></textarea>
+        </label>
+        <div class="formula-mode" id="formulaModeRow">
+          <label class="check-row"><input type="radio" name="formulaDisplay" value="inline" checked /> <span>En línea con el texto</span></label>
+          <label class="check-row"><input type="radio" name="formulaDisplay" value="block" /> <span>Fórmula en bloque</span></label>
+        </div>
+        <div class="formula-preview-label">Vista previa</div>
+        <div id="formulaPreview" class="formula-preview" aria-live="polite"><span class="muted">Escribe una expresión LaTeX…</span></div>
+        <div class="formula-error" id="formulaError" hidden></div>
+      </div>
+      <div class="formula-symbols-panel">
+        <div class="popover-title">Símbolos frecuentes</div>
+        <div id="formulaSymbols" class="formula-symbols"></div>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" data-close-dialog>Cancelar</button>
+      <button type="submit" class="btn primary" id="formulaSubmit">Insertar fórmula</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="dlgExamples" class="app-dialog">
-  <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-    <div class="text-sm font-bold">Cargar ejemplo</div>
-    <button type="button" class="tbtn !h-7 !min-w-7 !px-1" data-action="close-dialog" aria-label="Cerrar"><i data-lucide="x" class="h-4 w-4"></i></button>
+  <div class="dialog-head">
+    <h2><i data-lucide="book-open" class="icon"></i> Cargar ejemplo</h2>
+    <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar"><i data-lucide="x" class="icon"></i></button>
   </div>
-  <div id="examplesList" class="max-h-[60vh] overflow-auto p-2"></div>
+  <div class="dialog-body" id="examplesList">
+    <button type="button" class="example-item" data-example="colas-mm1.md">
+      <span class="example-icon"><i data-lucide="sigma" class="icon"></i></span>
+      <span><strong>Colas M/M/1</strong><small>Fórmulas, tabla de métricas, código y salto de página.</small></span>
+    </button>
+    <button type="button" class="example-item" data-example="integrales-y-limites.md">
+      <span class="example-icon"><i data-lucide="sigma" class="icon"></i></span>
+      <span><strong>Integrales y límites</strong><small>Fórmulas en línea y en bloque, citas y listas.</small></span>
+    </button>
+    <button type="button" class="example-item" data-example="matrices-y-tablas.md">
+      <span class="example-icon"><i data-lucide="table" class="icon"></i></span>
+      <span><strong>Matrices y tablas</strong><small>Matrices de LaTeX y tablas de Markdown convertidas.</small></span>
+    </button>
+    <button type="button" class="example-item" data-example="paginacion-demo.md">
+      <span class="example-icon"><i data-lucide="files" class="icon"></i></span>
+      <span><strong>Demostración de paginación</strong><small>Contenido suficiente para ver la paginación automática.</small></span>
+    </button>
+  </div>
+  <div class="dialog-actions">
+    <span class="hint grow">Los ejemplos se cargan desde la carpeta <code>examples/</code> del proyecto.</span>
+    <button type="button" class="btn" data-close-dialog>Cerrar</button>
+  </div>
 </dialog>
 
 <dialog id="dlgSettings" class="app-dialog">
-  <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-    <div class="text-sm font-bold">Configuración</div>
-    <button type="button" class="tbtn !h-7 !min-w-7 !px-1" data-action="close-dialog" aria-label="Cerrar"><i data-lucide="x" class="h-4 w-4"></i></button>
-  </div>
-  <div class="space-y-3 p-4 text-sm">
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Encabezado (PDF)</span>
-      <input id="cfgHeader" type="text" class="field" placeholder="Ej.: Cálculo II — Segundo parcial" />
-    </label>
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Pie de página (PDF)</span>
-      <input id="cfgFooter" type="text" class="field" placeholder="Ej.: Universidad, 2026" />
-    </label>
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">Tamaño de fuente del editor</span>
-      <select id="cfgFontSize" class="field">
-        <option value="13px">13 px</option>
-        <option value="14px">14 px</option>
-        <option value="16px">16 px</option>
-        <option value="18px">18 px</option>
-      </select>
-    </label>
-    <label class="flex items-center gap-2">
-      <input id="cfgLineNumbers" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-indigo-600" />
-      <span>Mostrar números de línea en el editor</span>
-    </label>
-  </div>
+  <form id="formSettings" class="dialog-form">
+    <div class="dialog-head">
+      <h2><i data-lucide="settings-2" class="icon"></i> Configuración</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar"><i data-lucide="x" class="icon"></i></button>
+    </div>
+    <div class="dialog-body">
+      <label class="field-row">
+        <span>Tema de la interfaz</span>
+        <select id="cfgTheme" class="field">
+          <option value="light">Claro</option>
+          <option value="dark">Oscuro</option>
+        </select>
+      </label>
+      <label class="stacked-field">
+        <span>Encabezado del documento</span>
+        <input id="cfgHeaderDialog" class="field" type="text" maxlength="180" placeholder="Texto de la izquierda del encabezado" />
+      </label>
+      <label class="stacked-field">
+        <span>Pie de página del documento</span>
+        <input id="cfgFooterDialog" class="field" type="text" maxlength="180" placeholder="Texto de la izquierda del pie" />
+      </label>
+      <div class="dialog-section">
+        <h3>Datos del documento</h3>
+        <p class="hint">El contenido se guarda automáticamente en este navegador (IndexedDB con respaldo en LocalStorage). Nada se envía a internet.</p>
+        <div class="button-row">
+          <button type="button" class="btn" data-action="import-md"><i data-lucide="folder-open" class="icon"></i>Importar .md</button>
+          <button type="button" class="btn" data-action="download-md"><i data-lucide="download" class="icon"></i>Descargar .md</button>
+          <button type="button" class="btn danger" data-action="clear-storage"><i data-lucide="trash-2" class="icon"></i>Borrar datos guardados</button>
+        </div>
+      </div>
+      <p class="hint">Lantex funciona 100% en el navegador. Para exportar un PDF vectorial perfecto, usa <strong>Imprimir → Guardar como PDF</strong>.</p>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn primary" data-close-dialog>Listo</button>
+    </div>
+  </form>
 </dialog>
 
-<div id="toasts" class="no-print"></div>
-<div id="measure" aria-hidden="true"></div>
-<div id="exportRoot" aria-hidden="true"></div>
+<input type="file" id="imageInput" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" multiple hidden />
+<input type="file" id="mdInput" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden />
+<input type="color" id="customColorInput" hidden />
 
-<!-- ==========================================================================
-     LIBRERÍAS (CDN)
-     ========================================================================== -->
+<div id="measure" class="measure-root" aria-hidden="true"></div>
+<div id="exportRoot" class="export-root" aria-hidden="true"></div>
+
+<!-- ================= LIBRERÍAS ================= -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
         integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"></script>
 <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
 
-<script>
-/* ============================================================================
-   EDITOR LATEX/MARKDOWN PAGINADO A4
-   Constitución: 100 % cliente · KaTeX prioritario · fidelidad de pegado ·
-   cero backend · lógica de parseo/render separada del DOM · errores silenciosos
-
-   Módulos: Util · Store · Config · Parser · Paginator · Exporter · UI
-   ============================================================================ */
-(function () {
-  'use strict';
-
-  /* ==========================================================================
-     0. CONSTANTES DE PÁGINA Y UTILIDADES
-     ========================================================================== */
-  const CSS_PX_PER_IN = 96;
-  const MM_PER_IN = 25.4;
-  const mm2px = (mm) => (mm * CSS_PX_PER_IN) / MM_PER_IN;
-
-  const A4 = {
-    widthMm: 210,
-    heightMm: 297,
-    marginMm: 25,                                   // 2.5 cm
-    get contentWidthPx() { return mm2px(this.widthMm - 2 * this.marginMm); },   // 160 mm
-    get contentHeightPx() { return mm2px(this.heightMm - 2 * this.marginMm); } // 247 mm
-  };
-
-  /* Salto de página explícito: \pagebreak, \newpage o <!-- pagebreak --> en su propia línea.
-     El grupo de captura es IMPRESCINDIBLE: String.split descarta los separadores y, sin él,
-     el token de salto se perdería y la página nueva nunca se generaría. */
-  const PAGEBREAK_RE = /(\n[ \t]*(?:\\(?:pagebreak|newpage|page-break)\b|<!--\s*pagebreak\s*-->)[ \t]*)(?=\n|$)/g;
-  const PAGEBREAK_ONLY_RE = /^\s*(?:\\(?:pagebreak|newpage|page-break)\b|<!--\s*pagebreak\s*-->)\s*$/i;
-
-  /* Selector de cabecera: una línea con '''''palabra''''' (5 comillas simples a cada lado).
-     Esa palabra se repite en la cabecera de todas las páginas siguientes hasta que aparezca
-     otro selector. Sin selector, la cabecera derecha queda vacía. Acepta también comillas
-     tipográficas (’ ‘) por si el teclado del móvil las sustituye. */
-  const HDR_RE = /^[ \t]*['\u2019\u2018]{5}([^\n]*?)['\u2019\u2018]{5}[ \t]*$/gm;
-
-  const Util = {
-    debounce(fn, wait) {
-      let t = 0;
-      return function () {
-        const args = arguments, ctx = this;
-        clearTimeout(t);
-        t = setTimeout(() => fn.apply(ctx, args), wait);
-      };
-    },
-    escapeHtml(s) {
-      return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    },
-    num(v, fallback) { const n = parseFloat(v); return isFinite(n) ? n : (fallback || 0); },
-    clamp(v, min, max) { return Math.min(max, Math.max(min, v)); },
-    slug(s) {
-      const out = String(s || 'documento').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase();
-      return out || 'documento';
-    }
-  };
-
-  /* ==========================================================================
-     1. STORE — LocalStorage con fallback silencioso (cero backend)
-     ========================================================================== */
-  const Store = {
-    get(key, fallback) {
-      try {
-        const raw = window.localStorage.getItem(key);
-        return raw === null ? fallback : raw;
-      } catch (e) { return fallback; }
-    },
-    set(key, value) {
-      try { window.localStorage.setItem(key, value); return true; }
-      catch (e) { return false; }
-    }
-  };
-
-  /* ==========================================================================
-     2. CONFIG — persiste en la clave `editor-config`
-     ========================================================================== */
-  const DEFAULT_CONFIG = { theme: 'light', fontSize: '14px', showLineNumbers: false, pdf: { header: '', footer: '' } };
-
-  const Config = {
-    data: JSON.parse(JSON.stringify(DEFAULT_CONFIG)),
-    load() {
-      try {
-        const raw = Store.get('editor-config', null);
-        if (raw) {
-          const saved = JSON.parse(raw) || {};
-          const pdf = saved.pdf || {};
-          this.data = {
-            theme: saved.theme === 'dark' ? 'dark' : 'light',
-            fontSize: ['13px', '14px', '16px', '18px'].indexOf(saved.fontSize) >= 0 ? saved.fontSize : DEFAULT_CONFIG.fontSize,
-            showLineNumbers: !!saved.showLineNumbers,
-            pdf: {
-              header: typeof pdf.header === 'string' ? pdf.header : '',
-              footer: typeof pdf.footer === 'string' ? pdf.footer : ''
-            }
-          };
-        }
-      } catch (e) { /* config corrupta → valores por defecto */ }
-      return this.data;
-    },
-    save() { Store.set('editor-config', JSON.stringify(this.data)); }
-  };
-
-  /* ==========================================================================
-     3. PARSER — Marked.js + KaTeX (aislado de la manipulación del DOM)
-     ========================================================================== */
-
-  /* Macros frecuentes en Cálculo. Si KaTeX rechazara alguna definición,
-     `macrosOk` se desactiva y se reintenta sin macros (documento siempre visible). */
-  const KATEX_MACROS = {
-    '\\R': '\\mathbb{R}', '\\N': '\\mathbb{N}', '\\Z': '\\mathbb{Z}',
-    '\\Q': '\\mathbb{Q}', '\\C': '\\mathbb{C}', '\\Ind': '\\mathbb{1}',
-    '\\abs': '\\left\\lvert #1 \\right\\rvert',
-    '\\norm': '\\left\\lVert #1 \\right\\rVert',
-    '\\set': '\\left\\{ #1 \\right\\}',
-    '\\paren': '\\left( #1 \\right)',
-    '\\avg': '\\overline{#1}',
-    '\\euler': '\\mathrm{e}',
-    '\\ddx': '\\,\\mathrm{d}x',
-    '\\dydx': '\\frac{\\mathrm{d}y}{\\mathrm{d}x}'
-  };
-  const MARKED_OPTIONS = { gfm: true, breaks: false };
-
-  const Parser = {
-    errors: 0,
-    macrosOk: true,
-
-    /** Tokeniza la matemática ANTES de Marked para no corromper el LaTeX
-     *  (integrales, límites, matrices, \text{}, saltos de línea, etc.). */
-    extractMath(src) {
-      const tokens = [];
-      let out = '';
-      let i = 0;
-      while (i < src.length) {
-        const ch = src[i];
-        if (ch === '\\' && src[i + 1] === '$') { out += '$'; i += 2; continue; }   // \$ escapado
-        if (ch === '$' && src[i + 1] === '$') {                                   // bloque $$
-          const end = src.indexOf('$$', i + 2);
-          if (end > -1) {
-            tokens.push({ type: 'block', tex: src.slice(i + 2, end) });
-            out += '\u0000B' + (tokens.length - 1) + '\u0000\n';
-            i = end + 2;
-            continue;
-          }
-        }
-        if (ch === '$') {                                                          // inline $...$
-          const nl = src.indexOf('\n', i);
-          const limit = nl === -1 ? src.length : nl;
-          const close = src.indexOf('$', i + 1);
-          if (close > i && close < limit) {
-            tokens.push({ type: 'inline', tex: src.slice(i + 1, close) });
-            out += '\u0000I' + (tokens.length - 1) + '\u0000';
-            i = close + 1;
-            continue;
-          }
-        }
-        out += ch;
-        i++;
-      }
-      return { text: out, tokens: tokens };
-    },
-
-    /** HTML de KaTeX, o `null` si la fórmula es inválida.
-     *  NOTA (verificado en katex@0.16.11): la librería NO admite `output:'svg'`
-     *  — el enum real es htmlAndMathml | html | mathml (KaTeX eliminó el modo SVG).
-     *  La fidelidad en PDF se consigue con html2canvas a scale 4 (~300 dpi) más el
-     *  CSS @media print incluido, que permite además exportar vectorial con Ctrl+P. */
-    katexHtml(tex, display) {
-      const opts = {
-        displayMode: !!display,
-        output: 'htmlAndMathml',   // incluye MathML para accesibilidad
-        throwOnError: true,         // capturamos aquí el error y lo contenemos
-        strict: 'ignore',
-        trust: false,
-        maxExpand: 2000,
-        maxSize: 64
-      };
-      if (this.macrosOk) {
-        try { return window.katex.renderToString(tex, Object.assign({ macros: KATEX_MACROS }, opts)); }
-        catch (e) { this.macrosOk = false; }
-      }
-      try { return window.katex.renderToString(tex, opts); }
-      catch (e) { return null; }
-    },
-
-    /** Sustituye los marcadores \u0000Bn / \u0000In por el HTML de KaTeX. */
-    injectMath(html, tokens) {
-      const self = this;
-      // 1) Fórmulas de bloque que Marked dejó dentro de <p> → <div> centrado
-      html = html.replace(/<p>\u0000B(\d+)\u0000<\/p>/g, (m, id) =>
-        self.renderMath(tokens[+id] ? tokens[+id].tex : '', true));
-      // 2) Fórmula inline sola en un párrafo → se conserva el párrafo
-      html = html.replace(/<p>\u0000I(\d+)\u0000<\/p>/g, (m, id) =>
-        '<p>' + self.renderMath(tokens[+id] ? tokens[+id].tex : '', false) + '</p>');
-      // 3) Marcadores restantes: inline dentro de texto, títulos, celdas, listas…
-      html = html.replace(/\u0000([BI])(\d+)\u0000/g, (m, kind, id) =>
-        self.renderMath(tokens[+id] ? tokens[+id].tex : '', kind === 'B'));
-      return html;
-    },
-
-    /** Bloque de error CONTENIDO: nunca rompe el resto del documento. */
-    renderMath(tex, display) {
-      const clean = String(tex).replace(/^\n+|\n+$/g, '').trim();
-      if (!clean) return display ? '<div class="math-block" data-math-block="1"></div>' : '';
-      const html = this.katexHtml(clean, display);
-      if (html === null) {
-        this.errors++;
-        const chip = '<span class="math-error" title="Error de sintaxis LaTeX: revisa la fórmula">' +
-          Util.escapeHtml(clean) + '</span>';
-        return display ? '<div class="math-block" data-math-block="1">' + chip + '</div>' : chip;
-      }
-      return display
-        ? '<div class="math-block" data-math-block="1" data-tex="' + Util.escapeHtml(clean) + '">' + html + '</div>'
-        : '<span class="math-inline">' + html + '</span>';
-    },
-
-    /** Fragmento Markdown (+LaTeX) → HTML. */
-    renderFragment(src) {
-      if (!src || !src.trim()) return '';
-      const extracted = this.extractMath(src);
-      let html = '';
-      try { html = window.marked.parse(extracted.text, MARKED_OPTIONS); }
-      catch (e) { html = '<pre>' + Util.escapeHtml(extracted.text) + '</pre>'; }
-      return this.injectMath(html || '', extracted.tokens);
-    },
-
-    /** Documento completo → segmentos alternos {html} / {break}. */
-    renderDocument(src) {
-      this.errors = 0;
-      const segments = [];
-      src = String(src).replace(HDR_RE, (m, t) =>
-        '\n\n<div class="hdr-marker" data-hdr="' + Util.escapeHtml(t.trim()) + '"></div>\n\n');
-      String(src).split(PAGEBREAK_RE).forEach((part) => {
-        if (PAGEBREAK_ONLY_RE.test(part)) segments.push({ break: true });
-        else segments.push({ html: this.renderFragment(part) });
-      });
-      return segments;
-    },
-
-    /* ------------------------------------------------------------------
-       Conversión Markdown → LaTeX puro (botón "Copiar LaTeX Puro")
-       ------------------------------------------------------------------ */
-    toLatex(src) {
-      const extracted = this.extractMath(src);
-      const math = extracted.tokens.map((t) => (t.type === 'block' ? '\\[' + t.tex.trim() + '\\]' : '$' + t.tex.trim() + '$'));
-      const lines = extracted.text.split('\n');
-      const out = [];
-      let i = 0;
-
-      while (i < lines.length) {
-        const line = lines[i];
-
-        // Bloque de código
-        if (/^\s*```/.test(line)) {
-          const buf = [];
-          i++;
-          while (i < lines.length && !/^\s*```/.test(lines[i])) { buf.push(lines[i]); i++; }
-          i++;
-          out.push('\\begin{verbatim}\n' + buf.join('\n') + '\n\\end{verbatim}');
-          continue;
-        }
-        // Títulos
-        const h = /^(#{1,6})\s+(.*)$/.exec(line);
-        if (h) {
-          const cmd = ['section', 'subsection', 'subsubsection', 'paragraph', 'paragraph', 'paragraph'][Math.min(h[1].length, 6) - 1];
-          out.push('\\' + cmd + '{' + inline(h[2]) + '}');
-          i++;
-          continue;
-        }
-        // Regla horizontal
-        if (/^\s*([-*_])\s*\1[\s\-*_]*$/.test(line)) {
-          out.push('\\begin{center}\\rule{0.6\\linewidth}{0.4pt}\\end{center}');
-          i++;
-          continue;
-        }
-        // Cita
-        if (/^\s*>\s?/.test(line)) {
-          const buf = [];
-          while (i < lines.length && /^\s*>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
-          out.push('\\begin{quote}\n' + buf.map(inline).join('\n') + '\n\\end{quote}');
-          continue;
-        }
-        // Listas
-        if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
-          const ordered = /^\s*\d+\.\s+/.test(line);
-          const env = ordered ? 'enumerate' : 'itemize';
-          const items = [];
-          while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
-            items.push('\\item ' + inline(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, '')));
-            i++;
-          }
-          out.push('\\begin{' + env + '}\n' + items.join('\n') + '\n\\end{' + env + '}');
-          continue;
-        }
-        // Tablas
-        if (/^\s*\|/.test(line) && /^\s*\|?[\s:\-|]+\|[\s:\-|]*$/.test(lines[i + 1] || '')) {
-          const rows = [];
-          rows.push(splitRow(line));
-          i += 2;
-          while (i < lines.length && /^\s*\|/.test(lines[i])) { rows.push(splitRow(lines[i])); i++; }
-          const align = rows.shift().map((c) => {
-            const s = c.trim();
-            if (/^:.*:$/.test(s)) return 'c';
-            if (/^:/.test(s)) return 'l';
-            if (/:$/.test(s)) return 'r';
-            return 'l';
-          });
-          const body = rows.map((r) => r.map(inline).join(' & ')).join(' \\\\\n');
-          out.push('\\begin{tabular}{' + align.join('') + '}\n\\hline\n' + body + ' \\\\\n\\hline\n\\end{tabular}');
-          continue;
-        }
-        // Línea en blanco
-        if (!line.trim()) { out.push(''); i++; continue; }
-        // Párrafo / línea suelta
-        out.push(inline(line));
-        i++;
-      }
-
-      return restore(out.join('\n\n')).replace(/\n{3,}/g, '\n\n').trim() + '\n';
-
-      function splitRow(l) { return l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim()); }
-      function inline(s) {
-        return s
-          .replace(/`([^`]+)`/g, '\\texttt{$1}')
-          .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '\\includegraphics[width=0.8\\linewidth]{$2}')
-          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '\\underline{$1}')
-          .replace(/\*\*\*([^*]+)\*\*\*/g, '\\textbf{\\textit{$1}}')
-          .replace(/\*\*([^*]+)\*\*/g, '\\textbf{$1}')
-          .replace(/(^|[\s(])\*([^*]+)\*/g, '$1\\textit{$2}')
-          .replace(/__([^_]+)__/g, '\\textbf{$1}');
-      }
-      function restore(text) {
-        return text.replace(/\u0000([BI])(\d+)\u0000/g, (m, kind, id) => (math[+id] || ''));
-      }
-    }
-  };
-
-  /* ==========================================================================
-     4. PAGINATOR — medición real con getBoundingClientRect()
-     ========================================================================== */
-  const Paginator = {
-    MIN_LINES: 2,          // widow/orphan: mínimo de líneas antes/después del corte
-    lineHeight: 16,
-    container: null,       // lienzo de medición (para poder medir bloques divididos)
-
-    /* Alturas efectivas top→top (incluyen márgenes colapsados). */
-    effectiveHeights(nodes) {
-      const rects = nodes.map((n) => n.getBoundingClientRect());
-      const out = new Array(nodes.length);
-      for (let i = 0; i < nodes.length; i++) {
-        let h;
-        if (i + 1 < nodes.length) {
-          h = rects[i + 1].top - rects[i].top;
-        } else {
-          const cs = getComputedStyle(nodes[i]);
-          h = rects[i].height + Util.num(cs.marginBottom) + Util.num(cs.marginTop);
-        }
-        out[i] = Math.max(h, rects[i].height);
-      }
-      return out;
-    },
-
-    standaloneHeight(el) {
-      const r = el.getBoundingClientRect();
-      const cs = getComputedStyle(el);
-      return r.height + Util.num(cs.marginBottom) + Util.num(cs.marginTop);
-    },
-
-    /** Adjunta un nodo al lienzo para poder medirlo (colas de división). */
-    attach(el) {
-      if (this.container) this.container.appendChild(el);
-      return this.standaloneHeight(el);
-    },
-
-    /** Distribuye los bloques medidos en grupos de página. */
-    paginate(chunks) {
-      const heights = this.effectiveHeights(chunks);
-      const pageH = A4.contentHeightPx;
-      const pages = [];
-      let current = [];
-      let avail = pageH;
-      let i = 0;
-      let guard = 0;
-
-      const flush = () => { pages.push(current); current = []; avail = pageH; };
-
-      while (i < chunks.length && guard++ < 20000) {
-        const chunk = chunks[i];
-
-        // RF-008: salto manual explícito
-        if (chunk.nodeType === 1 && chunk.hasAttribute('data-pagebreak')) { flush(); i++; continue; }
-
-        // 1) Cabe en el espacio restante
-        const h = heights[i];
-        if (h <= avail + 0.5) {
-          current.push(chunk);
-          avail -= h;
-          if (isHeading(chunk) && avail < this.lineHeight * 3.2) flush();   // título sin huérfana
-          i++;
-          continue;
-        }
-
-        // 2) ¿Cabe completo en una página nueva? → mover bloque entero
-        const fullH = this.standaloneHeight(chunk);
-        if (fullH <= pageH + 0.5) {
-          if (current.length) flush();
-          current.push(chunk);
-          avail -= fullH;
-          i++;
-          if (isHeading(chunk) && avail < this.lineHeight * 3.2) flush();
-          continue;
-        }
-
-        // 3) Más alto que una página → hay que dividirlo
-        const split = this.splitBlock(chunk, avail);
-        if (split && split.head) {
-          current.push(split.head);
-          flush();
-          const tailH = this.attach(split.tail);
-          chunks.splice(i, 1, split.tail);
-          heights.splice(i, 1, tailH);
-          continue;
-        }
-        // 4) No divisible: probar en una página nueva
-        if (current.length) { flush(); continue; }
-        // 5) Bloque indivisible y mayor que la página: se coloca y se corta
-        current.push(chunk);
-        i++;
-        flush();
-      }
-      flush();
-
-      // Contenido vacío → siempre al menos una hoja (RNF-009)
-      if (pages.length === 0) pages.push([]);
-      return pages;
-
-      function isHeading(el) { return el.nodeType === 1 && /^H[1-6]$/.test(el.tagName); }
-    },
-
-    /** Decide cómo cortar un bloque. */
-    splitBlock(el, avail) {
-      if (!el || el.nodeType !== 1) return null;
-      const tag = el.tagName;
-      if (el.hasAttribute('data-math-block')) return null;   // RF-006: $$ nunca se parte
-      if (tag === 'TABLE') return this.splitTable(el, avail);
-      if (tag === 'PRE') return this.splitPre(el, avail);
-      if (tag === 'HR') return null;
-      if (tag === 'UL' || tag === 'OL') return this.splitList(el, avail);
-      return this.splitByChars(el, avail);
-    },
-
-    /** Divide una tabla por filas, repitiendo el encabezado en la continuación. */
-    splitTable(table, avail) {
-      const head = table.querySelector('thead');
-      const tbodies = table.querySelectorAll('tbody');
-      const body = tbodies.length ? tbodies[0] : table;
-      const rows = Array.prototype.filter.call(body.children, (r) => r.tagName === 'TR');
-      if (rows.length < 2) return null;
-      const headH = head ? head.getBoundingClientRect().height : 0;
-      if (headH > avail * 0.6) return null;
-      const rects = rows.map((r) => r.getBoundingClientRect());
-      let k = 0;
-      for (let i = 0; i < rows.length - 1; i++) {
-        if (headH + (rects[i].bottom - rects[0].top) + 2 <= avail) k = i + 1;
-      }
-      if (k <= 0 || k >= rows.length) return null;
-
-      const tHead = table.cloneNode(false);
-      const tTail = table.cloneNode(false);
-      const bHead = document.createElement('tbody');
-      const bTail = document.createElement('tbody');
-      rows.forEach((r, i) => (i < k ? bHead : bTail).appendChild(r.cloneNode(true)));
-      if (head) { tHead.appendChild(head.cloneNode(true)); tTail.appendChild(head.cloneNode(true)); }
-      tHead.appendChild(bHead);
-      tTail.appendChild(bTail);
-      return { head: tHead, tail: tTail, headHeight: headH + (rects[k - 1].bottom - rects[0].top) + 6 };
-    },
-
-    /** Divide un bloque de código por filas visuales reales (respeta `pre-wrap`). */
-    splitPre(pre, avail) {
-      const code = pre.querySelector('code');
-      const holder = code || pre;                 // Marked envuelve en <pre><code>
-      const kids = holder.childNodes;
-      if (kids.length !== 1 || kids[0].nodeType !== 3) return null;   // sin resaltado: solo texto
-      const node = kids[0];
-      const lines = node.nodeValue.replace(/\n+$/, '').split('\n');
-      if (lines.length < 4) return null;
-
-      const box = pre.getBoundingClientRect();
-      const cs = getComputedStyle(pre);
-      const base = box.top + Util.num(cs.borderTopWidth) + Util.num(cs.paddingTop);
-      const range = document.createRange();
-      const rows = [];
-      let offset = 0;
-      for (let i = 0; i < lines.length; i++) {
-        if (offset <= node.nodeValue.length) {
-          range.setStart(node, offset);
-          range.setEnd(node, Math.min(offset + Math.max(lines[i].length, 1), node.nodeValue.length));
-          const top = range.getBoundingClientRect().top;
-          if (rows.length === 0 || top > rows[rows.length - 1] + 1) rows.push(top);
-        }
-        offset += lines[i].length + 1;
-      }
-      if (rows.length < 4) return null;
-
-      const rowH = (rows[1] - rows[0]) || Util.num(cs.lineHeight) || 16;
-      const bottomChrome = Util.num(cs.borderBottomWidth) + Util.num(cs.paddingBottom);
-      let last = 0;
-      for (let r = 0; r < rows.length; r++) {
-        // desde el borde exterior del <pre> (padding+borde superiores ya incluidos)
-        if (rows[r] + rowH - box.top + bottomChrome <= avail + 0.5) last = r; else break;
-      }
-      if (last < 1 || last >= rows.length - 1) return null;
-
-      let k = 0;
-      for (let i = 0; i < lines.length; i++) {
-        if (offsetOfLine(i) >= 0 && offsetOfLine(i) <= rows[last] + 1) k = i + 1;
-      }
-      if (k <= 0 || k >= lines.length) return null;
-
-      const head = pre.cloneNode(false);
-      const tail = pre.cloneNode(false);
-      [head, tail].forEach((n) => { if (code) n.appendChild(document.createElement('code')); });
-      setText(head, lines.slice(0, k).join('\n'));
-      setText(tail, lines.slice(k).join('\n'));
-      return { head, tail, headHeight: rows[last] + rowH - box.top + bottomChrome + 4 };
-
-      function setText(node_, text) {
-        const c = node_.querySelector('code');
-        (c || node_).textContent = text;
-      }
-
-      function offsetOfLine(i) {
-        let o = 0;
-        for (let j = 0; j < i; j++) o += lines[j].length + 1;
-        range.setStart(node, o);
-        range.setEnd(node, Math.min(o + Math.max(lines[i].length, 1), node.nodeValue.length));
-        return range.getBoundingClientRect().top;
-      }
-    },
-
-    /** Divide una lista entre elementos <li>. */
-    splitList(list, avail) {
-      const items = Array.prototype.filter.call(list.children, (c) => c.tagName === 'LI');
-      if (items.length < 2) return null;
-      const rects = items.map((li) => li.getBoundingClientRect());
-      let k = 0;
-      for (let i = 0; i < items.length - 1; i++) {
-        if ((rects[i].bottom - rects[0].top) <= avail) k = i + 1;
-      }
-      if (k <= 0 || k >= items.length) return null;
-      if (items.length - k <= 1) return null;                  // viuda de un solo ítem
-
-      const head = list.cloneNode(false);
-      const tail = list.cloneNode(false);
-      items.forEach((li, idx) => (idx < k ? head : tail).appendChild(li.cloneNode(true)));
-      tail.classList.add('continued');
-      return { head, tail, headHeight: rects[k - 1].bottom - rects[0].top + 4 };
-    },
-
-    /** Divide un bloque de texto por líneas reales (Range + getBoundingClientRect). */
-    splitByChars(el, avail) {
-      const nodes = collectTextNodes(el);
-      if (!nodes.length) return null;
-      let total = 0;
-      for (let i = 0; i < nodes.length; i++) total += nodes[i].data.length;
-      if (total < 40) return null;                            // demasiado corto: no compensa
-
-      const range = document.createRange();
-      const locate = (count) => {
-        let acc = 0;
-        for (let i = 0; i < nodes.length; i++) {
-          const len = nodes[i].data.length;
-          if (count <= acc + len) return { node: nodes[i], offset: count - acc };
-          acc += len;
-        }
-        const last = nodes[nodes.length - 1];
-        return { node: last, offset: last.data.length };
-      };
-      const heightAt = (count) => {
-        const end = locate(count);
-        range.selectNodeContents(el);
-        range.setStart(nodes[0], 0);
-        range.setEnd(end.node, end.offset);
-        return range.getBoundingClientRect().height;
-      };
-
-      // Búsqueda binaria del mayor prefijo que cabe en el espacio disponible
-      let lo = 1, hi = total, best = 0, guard = 0;
-      while (lo <= hi && guard++ < 40) {
-        const mid = (lo + hi) >> 1;
-        if (heightAt(mid) <= avail) { best = mid; lo = mid + 1; }
-        else hi = mid - 1;
-      }
-      if (best <= 0) return null;
-
-      // No cortar justo antes de un salto (espacios al final)
-      let snap = best, guard2 = 0;
-      while (snap > 0 && guard2++ < 300) {
-        const pos = locate(snap);
-        const ch = pos.node.data[pos.offset - 1];
-        if (ch === undefined || !/\s/.test(ch)) break;
-        snap--;
-      }
-      if (snap <= 0) return null;
-      best = snap;
-
-      const headHeight = heightAt(best);
-      const lh = this.lineHeight || 16;
-      if (headHeight < lh * this.MIN_LINES) return null;                    // huérfana
-      const fullH = this.standaloneHeight(el);
-      if (fullH - headHeight < lh * (this.MIN_LINES - 0.5)) return null;    // viuda
-
-      const parts = splitClones(el, nodes, best);
-      if (!parts) return null;
-      return { head: parts[0], tail: parts[1], headHeight: headHeight + 4 };
-    }
-  };
-
-  /* Texto que SÍ se puede partir (nunca dentro de KaTeX/SVG/imágenes) */
-  function collectTextNodes(root) {
-    const out = [];
-    (function walk(node) {
-      const kids = node.childNodes;
-      for (let i = 0; i < kids.length; i++) {
-        const child = kids[i];
-        if (child.nodeType === 3) {
-          if (child.data.length) out.push(child);
-        } else if (child.nodeType === 1) {
-          const t = child.tagName;
-          if (t === 'BR' || t === 'SVG' || t === 'IMG') continue;
-          if (child.classList && (child.classList.contains('katex') || child.classList.contains('math-error'))) continue;
-          walk(child);
-        }
-      }
-    })(root);
-    return out;
-  }
-
-  /** Clona el elemento en dos, repartiendo el texto por índice de carácter. */
-  function splitClones(el, textNodes, count) {
-    const head = el.cloneNode(true);
-    const tail = el.cloneNode(true);
-    const headTexts = collectTextNodes(head);
-    const tailTexts = collectTextNodes(tail);
-    if (headTexts.length !== textNodes.length || tailTexts.length !== textNodes.length) return null;
-
-    let acc = 0;
-    for (let i = 0; i < textNodes.length; i++) {
-      const len = textNodes[i].data.length;
-      const start = acc, end = acc + len;
-      if (end <= count) headTexts[i].data = '';
-      else if (start >= count) tailTexts[i].data = '';
-      else {
-        headTexts[i].data = textNodes[i].data.slice(0, count - start);
-        tailTexts[i].data = textNodes[i].data.slice(count - start);
-      }
-      acc = end;
-    }
-    pruneEmpty(head, false);   // limpia restos del final
-    pruneEmpty(tail, true);    // limpia restos del inicio
-    tail.classList.add('continued');
-    if (!head.textContent.trim() || !tail.textContent.trim()) return null;
-    return [head, tail];
-  }
-
-  /** Elimina nodos inline vacíos del inicio (fromStart) o del final. */
-  function pruneEmpty(el, fromStart) {
-    const removable = (n) => n.nodeType === 1 && !n.textContent.trim() &&
-      !n.querySelector('svg,img,br') && !/^(TABLE|TD|TH|TR|PRE|UL|OL|LI|DIV)$/.test(n.tagName);
-    let guard = 0;
-    while (guard++ < 80) {
-      const list = Array.prototype.slice.call(el.childNodes);
-      if (!fromStart) list.reverse();
-      let removed = false;
-      for (const node of list) {
-        const edge = fromStart ? node === el.firstChild : node === el.lastChild;
-        if (!edge) continue;
-        if (node.nodeType === 3 && !node.data.trim()) { el.removeChild(node); removed = true; break; }
-        if (removable(node)) { el.removeChild(node); removed = true; break; }
-      }
-      if (!removed) break;
-    }
-  }
-
-  /* ==========================================================================
-     5. EXPORTER — html2pdf.js sobre un CLON del DOM paginado
-     ========================================================================== */
-  const Exporter = {
-    filename() {
-      const m = /^\s*#\s+(.+)$/m.exec(editor.value || '');
-      return Util.slug(m ? m[1] : (Config.data.pdf.header || 'documento'));
-    },
-
-    /** Clona las hojas e inyecta encabezado/pie (RF-020: no toca el DOM visible). */
-    buildClone() {
-      const root = document.getElementById('exportRoot');
-      root.innerHTML = '';
-      const sources = Array.prototype.slice.call(pagesEl.children);
-      const total = sources.length;
-      sources.forEach((src, idx) => {
-        const clone = src.cloneNode(true);
-        clone.classList.add('pdf-page');
-        clone.classList.toggle('pdf-page-break-before', idx > 0);
-        const head = clone.querySelector('.a4-header');
-        const foot = clone.querySelector('.a4-footer');
-        if (head) head.innerHTML = headerHtml(src.getAttribute('data-hdr') || '');
-        if (foot) foot.innerHTML = footerHtml(idx, total);
-        root.appendChild(clone);
-      });
-      return root;
-    },
-
-    options() {
-      return {
-        margin: 0,                                    // los márgenes 2.5 cm ya están en la hoja
-        filename: this.filename() + '.pdf',
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 4,                                    // nitidez (4x ≈ 288 dpi)
-          useCORS: true,
-          logging: false,
-          backgroundColor: '#ffffff',
-          windowWidth: mm2px(A4.widthMm)
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-        pagebreak: { mode: ['css', 'legacy'], before: '.pdf-page-break-before', avoid: ['pre', 'table'] }
-      };
-    },
-
-    async toPDF(clone) {
-      return window.html2pdf().set(this.options()).from(clone).toPdf().get('pdf');
-    },
-
-    /** Plan B determinista: una hoja A4 por página.
-     *  html2pdf.bundle no expone html2canvas/jsPDF globalmente, así que las
-     *  librerías se cargan bajo demanda SOLO si hacen falta (cero coste inicial). */
-    async ensureFallbackLibs() {
-      const load = (src) => new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.crossOrigin = 'anonymous';
-        s.onload = () => resolve(true);
-        s.onerror = () => reject(new Error('No se pudo cargar ' + src));
-        document.head.appendChild(s);
-      });
-      if (!window.html2canvas) {
-        await load('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
-      }
-      if (!(window.jspdf && window.jspdf.jsPDF)) {
-        await load('https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js');
-      }
-    },
-
-    async fallback(clone) {
-      await this.ensureFallbackLibs();
-      const JsPDF = window.jspdf && window.jspdf.jsPDF;
-      const canvasFn = window.html2canvas;
-      if (!JsPDF || !canvasFn) throw new Error('Librerías de PDF no disponibles');
-      const pdf = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
-      const pages = Array.prototype.slice.call(clone.children);
-      for (let i = 0; i < pages.length; i++) {
-        const canvas = await canvasFn(pages[i], {
-          scale: 4, backgroundColor: '#ffffff', useCORS: true, logging: false,
-          windowWidth: mm2px(A4.widthMm), width: mm2px(A4.widthMm), height: mm2px(A4.heightMm)
-        });
-        const img = canvas.toDataURL('image/jpeg', 0.98);
-        if (i > 0) pdf.addPage();
-        pdf.addImage(img, 'JPEG', 0, 0, A4.widthMm, A4.heightMm, undefined, 'FAST');
-      }
-      return pdf;
-    },
-
-
-    /** EXPORTACIÓN NATIVA (vectorial): imprime las hojas A4 desde un iframe oculto.
-     *  Usa el motor de render del navegador, así KaTeX (fracciones, subíndices,
-     *  raíces) sale idéntico a la vista previa. En el diálogo, elegir
-     *  "Guardar como PDF", tamaño A4, márgenes "Ninguno", sin encabezados. */
-    async printNative() {
-      const btn = document.querySelector('[data-action="open-pdf"]');
-      let iframe = null;
-      try {
-        const root = this.buildClone();
-        const pagesHtml = Array.prototype.map.call(root.children, (pg, i, arr) => {
-          pg.classList.remove('pdf-page-break-before');
-          pg.classList.add('print-sheet');
-          if (i === arr.length - 1) pg.classList.add('print-last');
-          return pg.outerHTML;
-        }).join('');
-        const appCss = Array.prototype.map.call(document.querySelectorAll('style'), (st) => st.textContent)
-          .filter((t) => t.indexOf('.a4-page') !== -1).join('\n');
-        const katexHref = (document.querySelector('link[href*="katex"]') || {}).href ||
-          'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css';
-        const title = this.filename();
-
-        iframe = document.createElement('iframe');
-        iframe.setAttribute('aria-hidden', 'true');
-        iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
-        document.body.appendChild(iframe);
-
-        const doc = iframe.contentDocument;
-        doc.open();
-        doc.write('<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>' + Util.escapeHtml(title) + '</title>' +
-          '<link rel="stylesheet" href="' + katexHref + '">' +
-          '<style>' + appCss + '</style>' +
-          '<style>' +
-          '@page{size:A4 portrait;margin:0;}' +
-          'html,body{margin:0;padding:0;background:#fff;height:auto;overflow:visible;display:block;}' +
-          '*{-webkit-print-color-adjust:exact;print-color-adjust:exact;}' +
-          '.a4-page.print-sheet{box-shadow:none;border:0;margin:0;position:relative;break-inside:avoid;page-break-inside:avoid;' +
-          'break-after:page;page-break-after:always;}' +
-          '.a4-page.print-last{break-after:auto;page-break-after:auto;}' +
-          '</style></head><body>' + pagesHtml + '</body></html>');
-        doc.close();
-
-        // Esperar a que cargue el CSS de KaTeX y sus fuentes antes de imprimir
-        await new Promise((resolve) => {
-          const link = doc.querySelector('link[rel=stylesheet]');
-          let done = false;
-          const fin = () => { if (!done) { done = true; resolve(); } };
-          if (link) { link.addEventListener('load', fin); link.addEventListener('error', fin); }
-          setTimeout(fin, 6000);
-        });
-        if (doc.fonts && doc.fonts.ready) { try { await doc.fonts.ready; } catch (e) { /* ignorar */ } }
-        await new Promise((r) => setTimeout(r, 250));
-
-        const cleanup = () => { setTimeout(() => { if (iframe && iframe.parentNode) iframe.remove(); iframe = null; }, 500); };
-        iframe.contentWindow.addEventListener('afterprint', cleanup);
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-        toast('En el diálogo elige "Guardar como PDF" (A4, márgenes: ninguno).', 'info', 5000);
-        setTimeout(cleanup, 120000);
-      } catch (err) {
-        console.error('[Editor] Error al imprimir:', err);
-        toast('No se pudo abrir la exportación. Intentando método alterno…', 'err', 3000);
-        if (iframe && iframe.parentNode) iframe.remove();
-        await this.run();
-      } finally {
-        document.getElementById('exportRoot').innerHTML = '';
-        if (btn) btn.disabled = false;
-      }
-    },
-
-    async run() {
-      const btn = document.querySelector('[data-action="open-pdf"]');
-      const label = btn ? btn.innerHTML : '';
-      if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i>Generando…';
-        refreshIcons();
-      }
-      toast('Generando PDF…', 'info', 1500);
-      let clone = null;
-      try {
-        clone = this.buildClone();
-        const expected = clone.children.length;
-        let pdf = null;
-        try {
-          pdf = await this.toPDF(clone);
-          // Auto-corrección si html2pdf añade una hoja en blanco al final
-          let tries = 0;
-          while (pdf.internal.getNumberOfPages() > expected && tries < 2) {
-            const last = clone.lastElementChild;
-            last.style.height = (Util.num(getComputedStyle(last).height, mm2px(297)) - 4) + 'px';
-            tries++;
-            const retry = await this.toPDF(clone);
-            const prev = pdf.internal.getNumberOfPages();
-            pdf = retry;
-            if (retry.internal.getNumberOfPages() >= prev) break;
-          }
-          if (pdf.internal.getNumberOfPages() !== expected) pdf = await this.fallback(clone);
-        } catch (err) {
-          console.warn('[Editor] html2pdf falló; ensamblado manual:', err);
-          pdf = await this.fallback(clone);
-        }
-        const pagesCount = pdf.internal ? pdf.internal.getNumberOfPages() : expected;
-        pdf.save(this.filename() + '.pdf');
-        toast('PDF exportado (' + pagesCount + ' páginas).', 'ok');
-      } catch (err) {
-        console.error('[Editor] Error al exportar PDF:', err);
-        toast('No se pudo exportar el PDF. Intenta de nuevo.', 'err', 3800);
-      } finally {
-        document.getElementById('exportRoot').innerHTML = '';
-        if (btn) { btn.disabled = false; btn.innerHTML = label; refreshIcons(); }
-      }
-    }
-  };
-
-  /* ==========================================================================
-     6. DATOS DE UI: toolbar, símbolos, ejemplos, documento inicial
-     ========================================================================== */
-  const TOOLBAR = [
-    { action: 'h1', icon: 'heading-1', text: 'H1', title: 'Título 1' },
-    { action: 'h2', icon: 'heading-2', text: 'H2', title: 'Título 2' },
-    { action: 'h3', icon: 'heading-3', text: 'H3', title: 'Título 3' },
-    { action: 'bold', icon: 'bold', text: '', title: 'Negrita (Ctrl+B)' },
-    { action: 'italic', icon: 'italic', text: '', title: 'Cursiva (Ctrl+I)' },
-    { sep: true },
-    { action: 'ul', icon: 'list', text: 'Lista', title: 'Lista con viñetas' },
-    { action: 'ol', icon: 'list-ordered', text: '1.', title: 'Lista numerada' },
-    { action: 'quote', icon: 'quote', text: 'Cita', title: 'Bloque de cita' },
-    { action: 'table', icon: 'table', text: 'Tabla', title: 'Insertar tabla' },
-    { sep: true },
-    { action: 'code', icon: 'code-2', text: 'Código', title: 'Bloque de código' },
-    { action: 'link', icon: 'link', text: '', title: 'Insertar enlace' },
-    { action: 'pagebreak', icon: 'scissors', text: 'Salto', title: 'Insertar \\pagebreak' },
-    { action: 'hdr', icon: 'bookmark', text: 'Cabecera', title: "Selector de cabecera '''''palabra'''''" }
-  ];
-
-  const SYMBOLS = [
-    { label: '∫', tex: '\\int' },
-    { label: '∫ₐᵇ', tex: '\\int_{a}^{b}', sel: [6, 7] },
-    { label: '∮', tex: '\\oint' },
-    { label: '∑', tex: '\\sum_{i=1}^{n}' },
-    { label: '∏', tex: '\\prod_{i=1}^{n}' },
-    { label: 'lim', tex: '\\lim_{x \\to \\infty}' },
-    { label: '∂', tex: '\\partial' },
-    { label: '∇', tex: '\\nabla' },
-    { label: '∞', tex: '\\infty' },
-    { label: 'a⁄b', tex: '\\frac{a}{b}', sel: [6, 7] },
-    { label: '√x', tex: '\\sqrt{x}', sel: [6, 7] },
-    { label: '√ⁿx', tex: '\\sqrt[n]{x}', sel: [9, 10] },
-    { label: 'x⁻¹', tex: 'x^{-1}' },
-    { label: 'xₙ', tex: 'x_{n}', sel: [3, 4] },
-    { label: 'xⁿ', tex: 'x^{n}', sel: [3, 4] },
-    { label: '|x|', tex: '\\left|x\\right|' },
-    { label: '≠', tex: '\\neq' },
-    { label: '≤', tex: '\\leq' },
-    { label: '≥', tex: '\\geq' },
-    { label: '≈', tex: '\\approx' },
-    { label: '→', tex: '\\to' },
-    { label: '⇒', tex: '\\Rightarrow' },
-    { label: 'λ', tex: '\\lambda' },
-    { label: 'μ', tex: '\\mu' },
-    { label: 'ρ', tex: '\\rho' },
-    { label: 'σ', tex: '\\sigma' },
-    { label: 'α', tex: '\\alpha' },
-    { label: 'β', tex: '\\beta' },
-    { label: 'γ', tex: '\\gamma' },
-    { label: 'θ', tex: '\\theta' },
-    { label: 'π', tex: '\\pi' },
-    { label: 'Δ', tex: '\\Delta' },
-    { label: 'Σ', tex: '\\Sigma' },
-    { label: 'θr', tex: '\\theta_r' },
-    { label: '2×2', tex: '\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}' },
-    { label: '3×3', tex: '\\begin{bmatrix} a & b & c \\\\ d & e & f \\\\ g & h & i \\end{bmatrix}' },
-    { label: 'pmtx', tex: '\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}' },
-    { label: 'casos', tex: '\\begin{cases} x & \\text{si } x > 0 \\\\ 0 & \\text{en otro caso} \\end{cases}' },
-    { label: 'alineado', tex: '\\begin{aligned} a &= b \\\\ c &= d \\end{aligned}' },
-    { label: 'v⃗', tex: '\\vec{v}', sel: [5, 6] },
-    { label: 'AB⃗', tex: '\\overrightarrow{AB}', sel: [13, 15] },
-    { label: 'conj', tex: '\\overline{AB}' },
-    { label: 'txt', tex: '\\text{}', sel: [6, 6] },
-    { label: 'ℝ', tex: '\\mathbb{R}' },
-    { label: 'd/dx', tex: '\\dydx' },
-    { label: '$$', tex: '$$\n\n$$', sel: [3, 3] }
-  ];
-
-  const EXAMPLES = [
-    { file: 'colas-mm1.md', title: 'Colas M/M/1 (λ, μ, ρ)', desc: 'Modelo clásico de teoría de colas' },
-    { file: 'integrales-y-limites.md', title: 'Integrales y límites', desc: '∫, límites, derivadas' },
-    { file: 'matrices-y-tablas.md', title: 'Matrices y tablas', desc: 'bmatrix, pmatrix, tablas Markdown' },
-    { file: 'paginacion-demo.md', title: 'Demo de paginación', desc: 'Fórmulas altas y \\pagebreak' }
-  ];
-
-  const DEFAULT_DOC = [
-    '# Teoría de Colas — M/M/1',
-    '',
-    '## 1. Parámetros del sistema',
-    '',
-    'Considere una cola **M/M/1** con tasa de llegada $\\lambda = 0.5$ personas/s y tasa de servicio $\\mu = 1.2$ personas/s.',
-    '',
-    'La utilización del sistema es:',
-    '',
-    '$$\\rho = \\frac{\\lambda}{\\mu} = \\frac{0.5}{1.2} = 0.4167$$',
-    '',
-    'Como $\\rho < 1$, la cadena es estable y admits una distribución estacionaria.',
-    '',
-    '### 1.1 Número de personas en el sistema',
-    '',
-    '$$\\bar{L} = \\frac{\\rho}{1 - \\rho}, \\qquad \\bar{L}_q = \\frac{\\rho^2}{1 - \\rho}$$',
-    '',
-    '### 1.2 Tiempos medios',
-    '',
-    '$$\\bar{W} = \\frac{1}{\\mu - \\lambda}, \\qquad \\bar{W}_q = \\frac{\\lambda}{\\mu(\\mu - \\lambda)}$$',
-    '',
-    '\\pagebreak',
-    '',
-    '## 2. Probabilidades',
-    '',
-    'La probabilidad de que el sistema esté vacío es $P_0 = 1 - \\rho$, y para $n \\ge 1$:',
-    '',
-    '$$P_n = (1 - \\rho)\\,\\rho^n$$',
-    '',
-    'La probabilidad de que un cliente que llega tenga que esperar es $\\lambda / \\mu$.',
-    '',
-    '> **Nota:** los valores numéricos se redondean a 4 decimales.',
-    '',
-    '| Métrica | Símbolo | Valor |',
-    '|---|---|---:|',
-    '| Utilización | $\\rho$ | 0.4167 |',
-    '| En el sistema | $\\bar{L}$ | 0.7143 |',
-    '| En cola | $\\bar{L}_q$ | 0.2976 |',
-    '',
-    '## 3. Simulación en código',
-    '',
-    '```',
-    'from collections import deque',
-    '',
-    'def simular(lam, mu, tmax=60, semilla=7):',
-    '    q, t, served = deque(), 0.0, 0',
-    '    while t < tmax:',
-    '        t += exponencial(lam + mu)',
-    '        if vacio(q) and uniforme() < mu / (lam + mu):',
-    '            q.append(t)',
-    '        elif not vacio(q):',
-    '            q.popleft()',
-    '            served += 1',
-    '    return served',
-    '```',
-    '',
-    '## 4. Conclusión',
-    '',
-    'El modelo M/M/1 permite obtener $\\bar{L}$, $\\bar{L}_q$, $\\bar{W}$ y $\\bar{W}_q$ a partir de $\\lambda$ y $\\mu$.'
-  ].join('\n');
-
-  /* ==========================================================================
-     7. UI — referencias del DOM y construcción de componentes
-     ========================================================================== */
-  const editor = document.getElementById('editor');
-  const gutter = document.getElementById('gutter');
-  const pagesEl = document.getElementById('pages');
-  const pagesSizer = document.getElementById('pagesSizer');
-  const pagesWrap = document.getElementById('pagesWrap');
-  const measureEl = document.getElementById('measure');
-  const toastsEl = document.getElementById('toasts');
-
-  let renderToken = 0;
-  let fontsPromise = null;
-  let exPx = null;
-  let gutterLines = 0;
-  let currentTab = 'editor';
-
-  /* Encabezado / pie de las hojas */
-  function docTitle() {
-    const m = /^\s*#\s+(.+)$/m.exec(editor.value || '');
-    return (m ? m[1].trim() : '') || Config.data.pdf.header || 'Documento';
-  }
-  function headerHtml(text) {
-    return '<span>' + Util.escapeHtml(Config.data.pdf.header || '') + '</span>' +
-      '<span>' + Util.escapeHtml(text || '') + '</span>';
-  }
-
-  /* Texto de cabecera de cada página según los selectores '''''palabra'''''.
-     Un selector manda desde la página donde aparece (si tras él hay contenido en esa
-     página); uno que queda al final de una página rige desde la siguiente. */
-  function computeHeaders(groups) {
-    const isM = (n) => n.classList && n.classList.contains('hdr-marker');
-    let state = '';
-    return groups.map((nodes) => {
-      let lastContent = -1;
-      nodes.forEach((n, i) => { if (!isM(n)) lastContent = i; });
-      let own = null, last = state;
-      nodes.forEach((n, i) => {
-        if (!isM(n)) return;
-        last = n.getAttribute('data-hdr') || '';
-        if (own === null && i < lastContent) own = last;
-      });
-      const h = own !== null ? own : state;
-      state = last;
-      return h;
-    });
-  }
-
-  /* Fórmulas display que exceden el ancho útil: se parten en los signos "=" (también
-     \approx, \neq, \equiv) y se alinean con \begin{aligned}. Si aun así no cabe,
-     se reduce el tamaño lo mínimo necesario. */
-  const MathWrap = {
-    cache: new Map(),
-    OPS: ['approx', 'neq', 'ne', 'equiv'],
-
-    /** Posiciones de corte a nivel 0; null si la fórmula ya trae sus propios saltos (&, \\, \tag). */
-    splitPoints(tex) {
-      const pts = [];
-      let depth = 0, i = 0;
-      const n = tex.length;
-      const isL = (c) => /[a-zA-Z]/.test(c);
-      while (i < n) {
-        const ch = tex[i];
-        if (ch === '\\') {
-          let j = i + 1;
-          if (j < n && isL(tex[j])) {
-            while (j < n && isL(tex[j])) j++;
-            const name = tex.slice(i + 1, j);
-            if (name === 'left' || name === 'begin') depth++;
-            else if (name === 'right' || name === 'end') depth--;
-            else if (name === 'tag' || name === 'label' || name === 'nonumber') return null;
-            else if (depth === 0 && this.OPS.indexOf(name) !== -1 && tex.slice(0, i).trim()) pts.push(i);
-            i = j;
-            continue;
-          }
-          if (tex[j] === '\\' && depth === 0) return null;
-          i = j + 1;
-          continue;
-        }
-        if (ch === '{') depth++;
-        else if (ch === '}') depth--;
-        else if (depth === 0) {
-          if (ch === '&') return null;
-          if (ch === '=' && tex.slice(0, i).trim() && !/[:<>!]/.test(tex[i - 1] || '')) pts.push(i);
-        }
-        i++;
-      }
-      return pts;
-    },
-
-    fit(tex, limit, measure) {
-      const pts = this.splitPoints(tex);
-      const scaleFor = (w) => (w > limit + 0.5 ? Math.max(0.6, Math.floor((limit / w) * 0.995 * 100) / 100) : 0);
-      if (!pts || !pts.length) {
-        const m = measure(tex);
-        return m ? { html: null, scale: scaleFor(m.w) } : null;
-      }
-      const pieces = [];
-      let prev = 0;
-      pts.forEach((pt) => { pieces.push(tex.slice(prev, pt)); prev = pt; });
-      pieces.push(tex.slice(prev));
-      const P = (k) => pieces[k].trim();
-      const build = (rows, lhs) => '\\begin{aligned}' + rows.map((r, ri) =>
-        (ri === 0 && lhs)
-          ? P(0) + ' & ' + r.slice(1).map(P).join(' ')
-          : '& ' + r.map(P).join(' ')
-      ).join(' \\\\ ') + '\\end{aligned}';
-      const pack = (lhs) => {
-        const rows = [lhs ? [0, 1] : [0]];
-        for (let k = lhs ? 2 : 1; k < pieces.length; k++) {
-          const cur = rows[rows.length - 1];
-          cur.push(k);
-          const m = measure(build(rows, lhs));
-          if (m && m.w > limit + 0.5) { cur.pop(); rows.push([k]); }
-        }
-        const m = measure(build(rows, lhs));
-        return { m: m, ok: !!m && m.w <= limit + 0.5 };
-      };
-      const a = pack(true);
-      let best = a;
-      if (!a.ok) {
-        const b = pack(false);
-        best = (b.ok || !a.m || (b.m && b.m.w < a.m.w)) ? b : a;
-      }
-      if (!best.m) return null;
-      return { html: best.m.html, scale: scaleFor(best.m.w) };
-    },
-
-    run(root) {
-      const blocks = root.querySelectorAll('.math-block[data-tex]');
-      if (!blocks.length) return;
-      const probe = document.createElement('div');
-      probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;pointer-events:none;width:max-content;white-space:nowrap;';
-      root.appendChild(probe);
-      const measure = (t) => {
-        const html = Parser.katexHtml(t, true);
-        if (html === null) return null;
-        probe.innerHTML = html;
-        return { html: html, w: probe.getBoundingClientRect().width };
-      };
-      Array.prototype.forEach.call(blocks, (block) => {
-        const tex = block.getAttribute('data-tex');
-        const limit = block.clientWidth;
-        if (!tex || limit <= 0) return;
-        const kh = block.querySelector('.katex-html');
-        if (!kh || kh.scrollWidth <= kh.clientWidth + 1) return;     // ya cabe
-        const key = Math.round(limit) + '|' + tex;
-        let res = this.cache.get(key);
-        if (res === undefined) {
-          try { res = this.fit(tex, limit, measure); } catch (e) { res = null; }
-          this.cache.set(key, res);
-          if (this.cache.size > 300) this.cache.delete(this.cache.keys().next().value);
-        }
-        if (!res) return;
-        if (res.html) block.innerHTML = res.html;
-        if (res.scale) block.style.fontSize = res.scale + 'em';
-      });
-      root.removeChild(probe);
-    }
-  };
-  function footerHtml(i, total) {
-    return '<span>' + Util.escapeHtml(Config.data.pdf.footer || '') + '</span>' +
-      '<span>Página ' + (i + 1) + ' de ' + total + '</span>';
-  }
-
-  /* Normaliza unidades `ex` a `px` en SVG embebido en el documento.
-     KaTeX 0.16 ya no emite SVG, pero cualquier SVG propio (o de una versión
-     anterior) queda así con dimensiones estables para medir y exportar. */
-  function exToPx() {
-    if (exPx) return exPx;
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:absolute;left:-9999px;top:0;width:1ex;height:1ex;font-family:KaTeX_Main;font-size:16px;';
-    document.body.appendChild(probe);
-    exPx = probe.getBoundingClientRect().width || 8;
-    document.body.removeChild(probe);
-    return exPx;
-  }
-  function normalizeSvgUnits(root) {
-    if (!root || !root.querySelectorAll) return;
-    const svgs = root.querySelectorAll('svg[width][height]');
-    Array.prototype.forEach.call(svgs, (svg) => {
-      const w = svg.getAttribute('width');
-      const h = svg.getAttribute('height');
-      if (!w || !h || !/ex$/i.test(w) || !/ex$/i.test(h)) return;
-      const px = exToPx();
-      svg.style.width = (parseFloat(w) * px).toFixed(2) + 'px';
-      svg.style.height = (parseFloat(h) * px).toFixed(2) + 'px';
-      svg.removeAttribute('width');
-      svg.removeAttribute('height');
-      const va = /-?[\d.]+ex/.exec(svg.getAttribute('style') || '');
-      if (va) svg.style.verticalAlign = (parseFloat(va[0]) * px).toFixed(2) + 'px';
-    });
-  }
-
-  function buildToolbar(host) {
-    host.innerHTML = '';
-    TOOLBAR.forEach((item) => {
-      if (item.sep) {
-        const s = document.createElement('span');
-        s.className = 'mx-0.5 w-px self-stretch bg-slate-200 dark:bg-slate-700';
-        host.appendChild(s);
-        return;
-      }
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'tbtn';
-      b.dataset.action = item.action;
-      b.title = item.title;
-      b.setAttribute('aria-label', item.title);
-      const style = item.action === 'bold' ? ' font-black' : item.action === 'italic' ? ' italic' : '';
-      b.innerHTML = '<i data-lucide="' + item.icon + '" class="h-4 w-4"></i>' +
-        (item.text ? '<span class="' + style.trim() + '">' + item.text + '</span>' : '');
-      host.appendChild(b);
-    });
-  }
-
-  function buildSymbols(host) {
-    host.innerHTML = '';
-    SYMBOLS.forEach((sym) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'sym';
-      b.dataset.sym = sym.tex;
-      if (sym.sel) b.dataset.sel = sym.sel[0] + ',' + sym.sel[1];
-      b.textContent = sym.label;
-      b.title = sym.tex;
-      b.setAttribute('aria-label', 'Insertar ' + sym.tex);
-      host.appendChild(b);
-    });
-  }
-
-  function refreshIcons() {
-    try { if (window.lucide) window.lucide.createIcons(); } catch (e) { /* noop */ }
-  }
-
-  function toast(msg, type, ms) {
-    const el = document.createElement('div');
-    el.className = 'toast' + (type === 'err' ? ' err' : type === 'ok' ? ' ok' : '');
-    el.innerHTML = '<i data-lucide="' + (type === 'err' ? 'alert-triangle' : type === 'ok' ? 'check-circle-2' : 'info') +
-      '" class="h-4 w-4 shrink-0"></i><span>' + Util.escapeHtml(msg) + '</span>';
-    toastsEl.appendChild(el);
-    refreshIcons();
-    setTimeout(() => {
-      el.style.transition = 'opacity .25s ease';
-      el.style.opacity = '0';
-      setTimeout(() => el.remove(), 260);
-    }, ms || 2400);
-  }
-
-  /* ---------------- Números de línea ---------------- */
-  function updateLineNumbers() {
-    if (!Config.data.showLineNumbers) {
-      gutter.style.display = 'none';
-      gutterLines = 0;
-      return;
-    }
-    gutter.style.display = '';
-    const count = editor.value.split('\n').length;
-    if (count === gutterLines) { syncGutterScroll(); return; }
-    const frag = document.createDocumentFragment();
-    for (let i = 1; i <= count; i++) {
-      const line = document.createElement('div');
-      line.textContent = i;
-      frag.appendChild(line);
-    }
-    gutter.innerHTML = '';
-    gutter.appendChild(frag);
-    gutterLines = count;
-    syncGutterScroll();
-  }
-  function syncGutterScroll() { gutter.scrollTop = editor.scrollTop; }
-  function markCurrentLine() {
-    if (!Config.data.showLineNumbers) return;
-    const idx = editor.value.slice(0, editor.selectionStart).split('\n').length - 1;
-    const kids = gutter.children;
-    for (let i = 0; i < kids.length; i++) kids[i].classList.toggle('cur', i === idx);
-    syncGutterScroll();
-  }
-
-  /* ---------------- Edición (conserva el historial de undo) ---------------- */
-  function replaceSelection(value) {
-    editor.focus();
-    let ok = false;
-    try { ok = document.execCommand('insertText', false, value); } catch (e) { ok = false; }
-    if (!ok) {
-      const s = editor.selectionStart, e = editor.selectionEnd;
-      editor.setRangeText(value, s, e, 'end');
-    }
-  }
-  function insertText(value, sel) {
-    const hadSelection = editor.selectionStart !== editor.selectionEnd;
-    const cursorAfter = editor.selectionStart + value.length;
-    replaceSelection(value);
-    if (sel && !hadSelection) {
-      editor.setSelectionRange(cursorAfter - value.length + sel[0],
-        cursorAfter - value.length + (sel[1] === undefined ? sel[0] + 1 : sel[1]));
-    }
-    onEditorInput();
-  }
-  function wrapSelection(before, after, placeholder) {
-    const s = editor.selectionStart, e = editor.selectionEnd;
-    const had = editor.value.slice(s, e);
-    const inner = had || placeholder;
-    insertText(before + inner + after);
-    if (!had) editor.setSelectionRange(s + before.length, s + before.length + inner.length);
-  }
-  function prefixLines(prefix) {
-    const v = editor.value;
-    const s = editor.selectionStart, e = editor.selectionEnd;
-    const start = v.lastIndexOf('\n', Math.max(0, s - 1)) + 1;
-    let end = v.indexOf('\n', e);
-    if (end === -1) end = v.length;
-    const block = v.slice(start, end);
-    const out = block.split('\n').map((l, i) => prefix.replace('{N}', i + 1) + l).join('\n');
-    editor.focus();
-    editor.setSelectionRange(start, end);
-    replaceSelection(out);
-    onEditorInput();
-  }
-
-  const ACTIONS = {
-    h1: () => prefixLines('# '),
-    h2: () => prefixLines('## '),
-    h3: () => prefixLines('### '),
-    bold: () => wrapSelection('**', '**', 'negrita'),
-    italic: () => wrapSelection('*', '*', 'cursiva'),
-    ul: () => prefixLines('- '),
-    ol: () => prefixLines('{N}. '),
-    quote: () => prefixLines('> '),
-    table: () => insertText('| Columna A | Columna B |\n|---|---|\n| $x^2$ | |\n| | |\n'),
-    code: () => wrapSelection('\n```\n', '\n```\n', 'código'),
-    link: () => wrapSelection('[', '](https://)', 'texto'),
-    pagebreak: () => insertText('\n\\pagebreak\n'),
-    hdr: () => wrapSelection("\n'''''", "'''''\n", 'Cabecera'),
-    'new-doc': () => {
-      if (editor.value.trim() && !window.confirm('¿Borrar el documento actual?')) return;
-      editor.value = '';
-      onEditorInput();
-      editor.focus();
-      toast('Documento nuevo.', 'ok');
-    },
-    'copy-markdown': () => copyToClipboard(editor.value, 'Markdown copiado al portapapeles.'),
-    'copy-latex': () => copyToClipboard(Parser.toLatex(editor.value), 'LaTeX puro copiado al portapapeles.'),
-    'download-md': () => {
-      try {
-        const blob = new Blob([editor.value], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = Exporter.filename() + '.md';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-        toast('Archivo .md descargado.', 'ok');
-      } catch (e) {
-        toast('No se pudo generar la descarga.', 'err');
-      }
-    },
-    'open-pdf': (btn, ev) => (ev && ev.shiftKey ? Exporter.run() : Exporter.printNative()),
-    'open-examples': () => renderExamples(),
-    settings: () => openSettings(),
-    'close-dialog': (btn) => { const dlg = btn.closest('dialog'); if (dlg) dlg.close(); },
-    'toggle-theme': () => {
-      const dark = document.documentElement.classList.toggle('dark');
-      Config.data.theme = dark ? 'dark' : 'light';
-      Config.save();
-      scheduleRender(60);
-    },
-    'toggle-linenumbers': () => {
-      Config.data.showLineNumbers = !Config.data.showLineNumbers;
-      Config.save();
-      applyConfig();
-      const btn = document.querySelector('[data-action="toggle-linenumbers"]');
-      if (btn) btn.setAttribute('aria-pressed', String(Config.data.showLineNumbers));
-      scheduleRender(60);
-    },
-    'fit-zoom': () => fitPages(),
-    'toggle-sheet': () => toggleSheet(),
-    tab: (btn) => switchTab(btn.dataset.tab),
-    'load-example': (btn) => loadExample(btn.dataset.file)
-  };
-
-  function copyToClipboard(text, okMsg) {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(() => toast(okMsg, 'ok')).catch(() => fallbackCopy(text, okMsg));
-    } else fallbackCopy(text, okMsg);
-
-    function fallbackCopy(t, msg) {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = t;
-        ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        toast(msg, 'ok');
-      } catch (e) {
-        toast('El navegador bloqueó el portapapeles.', 'err');
-      }
-    }
-  }
-
-  /* ---------------- Ejemplos vía fetch ---------------- */
-  function renderExamples() {
-    const list = document.getElementById('examplesList');
-    list.innerHTML = '';
-    EXAMPLES.forEach((ex) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'tbtn mb-1 w-full !h-auto justify-start !px-3 !py-2.5 text-left';
-      b.dataset.action = 'load-example';
-      b.dataset.file = ex.file;
-      b.innerHTML = '<span class="flex flex-col gap-0.5">' +
-        '<span class="text-[13px] font-bold">' + Util.escapeHtml(ex.title) + '</span>' +
-        '<span class="text-[11px] font-normal text-slate-500 dark:text-slate-400">' + Util.escapeHtml(ex.desc) +
-        ' · <code class="text-[10px]">/examples/' + Util.escapeHtml(ex.file) + '</code></span></span>';
-      list.appendChild(b);
-    });
-    openDialog('dlgExamples');
-  }
-
-  async function loadExample(file) {
-    const url = 'examples/' + file;
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      editor.value = await res.text();
-      onEditorInput();
-      closeDialog('dlgExamples');
-      toast('Ejemplo cargado: ' + file, 'ok');
-    } catch (err) {
-      console.warn('[Editor] No se pudo cargar el ejemplo:', err);
-      toast('No se encontró /examples/' + file + '. Sirve el proyecto por HTTP o GitHub Pages.', 'err', 4200);
-    }
-  }
-
-  /* ---------------- Diálogos ---------------- */
-  function openDialog(id) {
-    const dlg = document.getElementById(id);
-    if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); }
-    else dlg.setAttribute('open', '');
-    refreshIcons();
-  }
-  function closeDialog(id) {
-    const dlg = document.getElementById(id);
-    if (!dlg) return;
-    if (typeof dlg.close === 'function') { try { dlg.close(); } catch (e) { dlg.removeAttribute('open'); } }
-    else dlg.removeAttribute('open');
-  }
-  function openSettings() {
-    document.getElementById('cfgHeader').value = Config.data.pdf.header;
-    document.getElementById('cfgFooter').value = Config.data.pdf.footer;
-    document.getElementById('cfgFontSize').value = Config.data.fontSize;
-    document.getElementById('cfgLineNumbers').checked = Config.data.showLineNumbers;
-    openDialog('dlgSettings');
-  }
-  function bindSettings() {
-    const sync = () => {
-      Config.data.pdf.header = document.getElementById('cfgHeader').value;
-      Config.data.pdf.footer = document.getElementById('cfgFooter').value;
-      Config.data.fontSize = document.getElementById('cfgFontSize').value;
-      Config.data.showLineNumbers = document.getElementById('cfgLineNumbers').checked;
-      Config.save();
-      applyConfig();
-      const btn = document.querySelector('[data-action="toggle-linenumbers"]');
-      if (btn) btn.setAttribute('aria-pressed', String(Config.data.showLineNumbers));
-      scheduleRender(80);
-    };
-    ['cfgHeader', 'cfgFooter', 'cfgFontSize', 'cfgLineNumbers'].forEach((id) => {
-      const el = document.getElementById(id);
-      el.addEventListener('input', sync);
-      el.addEventListener('change', sync);
-    });
-  }
-
-  function applyConfig() {
-    document.documentElement.classList.toggle('dark', Config.data.theme === 'dark');
-    document.documentElement.style.setProperty('--editor-font-size', Config.data.fontSize);
-    updateLineNumbers();
-  }
-
-  /* ---------------- Pestañas / responsive / zoom ---------------- */
-  function switchTab(tab) {
-    currentTab = tab;
-    const showEditor = tab === 'editor';
-    document.getElementById('panelEditor').style.display = showEditor ? '' : 'none';
-    document.getElementById('panelPreview').style.display = showEditor ? 'none' : '';
-    document.getElementById('panelPreview').classList.toggle('mt-3', showEditor);
-    document.querySelectorAll('[data-action="tab"]').forEach((b) => {
-      b.setAttribute('aria-pressed', String(b.dataset.tab === tab));
-    });
-    scheduleFit();
-  }
-
-  function isMobile() { return window.matchMedia('(max-width: 639px)').matches; }
-  function isDesktop() { return window.matchMedia('(min-width: 1024px)').matches; }
-
-  function toggleSheet(force) {
-    const sheet = document.getElementById('bottomSheet');
-    if (!isMobile() && force !== false) return;   // la hoja solo existe en móvil
-    const scrim = document.getElementById('sheetScrim');
-    const open = force !== undefined ? force : !sheet.classList.contains('open');
-    sheet.classList.toggle('open', open);
-    scrim.classList.toggle('show', open);
-    document.querySelectorAll('[data-action="toggle-sheet"]').forEach((b) => b.setAttribute('aria-expanded', String(open)));
-  }
-
-  function applyResponsive() {
-    const mobile = isMobile();
-    document.getElementById('bottomSheet').classList.toggle('hidden', !mobile);
-    document.getElementById('sheetScrim').classList.toggle('hidden', !mobile);
-    if (!mobile) toggleSheet(false);
-    if (isDesktop()) {
-      document.getElementById('panelEditor').style.display = '';
-      document.getElementById('panelPreview').style.display = '';
-    } else {
-      switchTab(currentTab);
-    }
-    scheduleFit();
-  }
-
-  /** Reajusta la escala cuando el panel acaba de cambiar de visibilidad. */
-  function scheduleFit() {
-    fitPages();                          // síncrono: fuerza reflow y mide al instante
-    requestAnimationFrame(fitPages);
-    setTimeout(fitPages, 140);
-  }
-
-  /** Escala la hoja A4 al ancho disponible (<640px y 640–1023px). */
-  function fitPages() {
-    const naturalW = mm2px(A4.widthMm);                    // 794 px
-    const wrapW = pagesWrap.clientWidth;
-    if (!wrapW) return;                                    // panel oculto: no forzar escala
-    const scale = Util.clamp((wrapW - 20) / naturalW, 0.15, 1);
-    pagesEl.style.width = naturalW + 'px';
-    pagesEl.style.transform = 'scale(' + scale.toFixed(4) + ')';
-    const naturalH = pagesEl.offsetHeight;                 // offsetHeight ignora el transform
-    pagesSizer.style.width = (naturalW * scale) + 'px';
-    pagesSizer.style.height = (22 + naturalH * scale + 24) + 'px';
-    document.getElementById('zoomLabel').textContent = Math.round(scale * 100) + '%';
-  }
-
-  /* ==========================================================================
-     8. RENDER PRINCIPAL: Markdown+LaTeX → HTML → medición → páginas A4
-     ========================================================================== */
-  function ensureFonts() {
-    if (!fontsPromise) fontsPromise = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-    return fontsPromise;
-  }
-
-  async function render() {
-    const token = ++renderToken;
-    const segments = Parser.renderDocument(editor.value);
-
-    // 1) Lienzo de medición con EXACTAMENTE el layout de la hoja final
-    measureEl.innerHTML = '';
-    const mPage = document.createElement('section');
-    mPage.className = 'a4-page';
-    const mContent = document.createElement('div');
-    mContent.className = 'a4-content';
-    mPage.appendChild(mContent);
-    measureEl.appendChild(mPage);
-
-    // 2) Volcado de los bloques de primer nivel
-    const chunks = [];
-    segments.forEach((seg) => {
-      if (seg.break) {
-        const marker = document.createElement('div');
-        marker.className = 'pagebreak-marker';
-        marker.setAttribute('data-pagebreak', '');
-        chunks.push(marker);
-        return;
-      }
-      const holder = document.createElement('div');
-      holder.innerHTML = seg.html;
-      while (holder.firstChild) {
-        const node = holder.firstChild;
-        holder.removeChild(node);
-        if (node.nodeType === 1) chunks.push(node);
-        else if (node.nodeType === 3 && node.data.trim()) {
-          const span = document.createElement('span');
-          span.appendChild(node);
-          chunks.push(span);
-        }
-      }
-    });
-    chunks.forEach((n) => mContent.appendChild(n));
-
-    // 3) SVG de KaTeX a px y espera de fuentes antes de medir
-    normalizeSvgUnits(mContent);
-    await ensureFonts();
-    if (token !== renderToken) return;
-    MathWrap.run(mContent);          // fórmulas display largas → varias líneas desde "="
-
-    // 4) Medición + paginación real (getBoundingClientRect)
-    Paginator.container = mContent;
-    Paginator.lineHeight = Util.num(getComputedStyle(mContent).lineHeight, 16) || 16;
-    const groups = Paginator.paginate(chunks);
-    if (token !== renderToken) return;
-
-    // 5) Pintado de las hojas
-    const total = groups.length;
-    const pageHeaders = computeHeaders(groups);
-    pagesEl.innerHTML = '';
-    groups.forEach((nodes, idx) => {
-      const page = document.createElement('section');
-      page.className = 'a4-page pdf-page' + (idx > 0 ? ' pdf-page-break-before' : '');
-      page.setAttribute('data-hdr', pageHeaders[idx] || '');
-      const head = document.createElement('div');
-      head.className = 'a4-header';
-      head.innerHTML = headerHtml(pageHeaders[idx]);
-      const content = document.createElement('div');
-      content.className = 'a4-content';
-      nodes.forEach((n) => content.appendChild(n));
-      const foot = document.createElement('div');
-      foot.className = 'a4-footer';
-      foot.innerHTML = footerHtml(idx, total);
-      page.appendChild(head);
-      page.appendChild(content);
-      page.appendChild(foot);
-      pagesEl.appendChild(page);
-    });
-
-    // 6) Métricas e indicadores
-    const src = editor.value;
-    const words = (src.trim().match(/\S+/g) || []).length;
-    document.getElementById('statWords').textContent = words + (words === 1 ? ' palabra' : ' palabras');
-    document.getElementById('statChars').textContent = src.length + ' caracteres';
-    document.getElementById('statLines').textContent = src.split('\n').length + ' líneas';
-    document.getElementById('statPages').textContent = total + (total === 1 ? ' página' : ' páginas');
-    const err = document.getElementById('statErrors');
-    err.classList.toggle('hidden', Parser.errors === 0);
-    err.classList.toggle('badge-err', Parser.errors > 0);
-    err.textContent = Parser.errors + (Parser.errors === 1 ? ' fórmula con error' : ' fórmulas con error');
-
-    fitPages();
-  }
-
-  /* ==========================================================================
-     9. ENTRADA / EVENTOS / AUTO-GUARDADO
-     ========================================================================== */
-  const saveContent = Util.debounce(() => {
-    const ok = Store.set('editor-content', editor.value);
-    const el = document.getElementById('saveState');
-    el.innerHTML = ok
-      ? '<i data-lucide="check" class="h-3 w-3"></i><span>Guardado</span>'
-      : '<i data-lucide="cloud-off" class="h-3 w-3"></i><span>Sin persistencia</span>';
-    refreshIcons();
-  }, 400);
-
-  const scheduleRender = Util.debounce(() => {
-    render().catch((e) => console.warn('[Editor] render:', e));
-  }, 180);
-
-  function onEditorInput() {
-    updateLineNumbers();
-    saveContent();
-    scheduleRender();
-  }
-
-  /* Scroll horizontal del editor: barra nativa + deslizador sincronizado */
-  function setupHScroll() {
-    const bar = document.getElementById('hScroll');
-    if (!bar) return;
-    let lock = false;
-    const sync = () => {
-      const max = Math.max(0, editor.scrollWidth - editor.clientWidth);
-      bar.classList.toggle('on', max > 2);
-      bar.max = String(max);
-      if (!lock) bar.value = String(editor.scrollLeft);
-    };
-    bar.addEventListener('input', () => { lock = true; editor.scrollLeft = +bar.value; lock = false; });
-    editor.addEventListener('scroll', sync, { passive: true });
-    editor.addEventListener('input', sync);
-    editor.addEventListener('keyup', sync);
-    window.addEventListener('resize', sync);
-    if (window.ResizeObserver) new ResizeObserver(sync).observe(editor);
-    setTimeout(sync, 0);
-  }
-
-  function bindEvents() {
-    setupHScroll();
-    // Delegación: cubre toolbar de escritorio, bottom-sheet y diálogos
-    document.addEventListener('click', (ev) => {
-      const btn = ev.target.closest('[data-action]');
-      if (btn) {
-        const fn = ACTIONS[btn.dataset.action];
-        if (fn) { ev.preventDefault(); fn(btn, ev); return; }
-      }
-      const sym = ev.target.closest('[data-sym]');
-      if (sym) {
-        ev.preventDefault();
-        let sel = null;
-        if (sym.dataset.sel) {
-          const parts = sym.dataset.sel.split(',').map(Number);
-          sel = [parts[0], parts[1]];
-        }
-        insertText(sym.dataset.sym, sel);
-      }
-    });
-
-    document.getElementById('sheetScrim').addEventListener('click', () => toggleSheet(false));
-
-    editor.addEventListener('input', onEditorInput);
-    editor.addEventListener('scroll', syncGutterScroll, { passive: true });
-    editor.addEventListener('keyup', markCurrentLine);
-    editor.addEventListener('click', markCurrentLine);
-    editor.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Tab') { ev.preventDefault(); insertText('  '); }
-      else if ((ev.ctrlKey || ev.metaKey) && ev.shiftKey && ev.key.toLowerCase() === 'c') {
-        ev.preventDefault(); ACTIONS['copy-markdown']();
-      } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'b') {
-        ev.preventDefault(); ACTIONS.bold();
-      } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'i') {
-        ev.preventDefault(); ACTIONS.italic();
-      }
-    });
-
-    window.addEventListener('resize', Util.debounce(() => {
-      applyResponsive();
-      scheduleRender(60);
-    }, 160));
-    window.addEventListener('beforeunload', () => Store.set('editor-content', editor.value));
-  }
-
-  /* ==========================================================================
-     10. ARRANQUE
-     ========================================================================== */
-  function init() {
-    Config.load();
-    buildToolbar(document.getElementById('toolbarHost'));
-    buildToolbar(document.getElementById('toolbarHostMobile'));
-    buildSymbols(document.getElementById('symbolsHost'));
-    buildSymbols(document.getElementById('symbolsHostMobile'));
-    bindSettings();
-    applyConfig();
-
-    const lnBtn = document.querySelector('[data-action="toggle-linenumbers"]');
-    if (lnBtn) lnBtn.setAttribute('aria-pressed', String(Config.data.showLineNumbers));
-
-    const saved = Store.get('editor-content', null);
-    editor.value = (saved === null || saved === '') ? DEFAULT_DOC : saved;
-
-    bindEvents();
-    refreshIcons();
-    applyResponsive();
-    updateLineNumbers();
-    markCurrentLine();
-    render().catch((e) => console.warn('[Editor] render inicial:', e));
-
-    if (!window.katex || !window.marked || !window.html2pdf) {
-      console.warn('[Editor] Alguna librería CDN no cargó.');
-      toast('No se pudieron cargar todas las librerías CDN.', 'err', 5000);
-    }
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
-})();
-</script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
