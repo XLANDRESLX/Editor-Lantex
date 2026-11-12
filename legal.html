@@ -7,7 +7,7 @@
   <meta name="color-scheme" content="light dark" />
   <title>Aviso Legal · Lantex</title>
 
-  <!-- Tema aplicado antes del primer pintado para evitar destellos (sincronizado con el editor) -->
+  <!-- Tema aplicado antes del primer pintado para evitar destellos -->
   <script>
     (function () {
       try {
@@ -22,20 +22,110 @@
 
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="alternate icon" href="favicon.svg" type="image/svg+xml" />
-
-  <!-- Preconnect para optimizar la carga de fuentes -->
+  
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link rel="preconnect" href="https://unpkg.com" crossorigin />
 
-  <!-- Estilos propios de la aplicación -->
-  <link rel="stylesheet" href="css/app.css" />
+  <!-- Estilos directos y específicos para la página legal (con scroll y diseño adaptable) -->
+  <style>
+    /* Reset básico y habilitación estricta del scroll vertical */
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      overflow-y: auto !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f9fafb;
+      color: #1f2937;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    /* Soporte automático para el modo oscuro heredado de la app */
+    html.dark, html.dark body {
+      background-color: #111827;
+      color: #f3f4f6;
+    }
+
+    /* Contenedor principal centrado, con espacios seguros para que nada se corte */
+    .legal-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 24px 80px 24px;
+      box-sizing: border-box;
+    }
+
+    /* Enlace de regreso */
+    .back-link {
+      display: inline-block;
+      margin-bottom: 24px;
+      color: #2563eb;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    html.dark .back-link {
+      color: #60a5fa;
+    }
+
+    .back-link:hover {
+      text-decoration: underline;
+    }
+
+    /* Tipografía y jerarquía */
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+      line-height: 1.2;
+    }
+
+    p.date {
+      color: #6b7280;
+      font-style: italic;
+      margin-bottom: 32px;
+    }
+
+    html.dark p.date {
+      color: #9ca3af;
+    }
+
+    h2 {
+      font-size: 1.25rem;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 6px;
+    }
+
+    html.dark h2 {
+      border-bottom-color: #374151;
+    }
+
+    p {
+      margin-bottom: 16px;
+      line-height: 1.7;
+    }
+
+    ul {
+      margin-bottom: 16px;
+      padding-left: 24px;
+      line-height: 1.7;
+    }
+
+    li {
+      margin-bottom: 6px;
+    }
+
+    strong {
+      font-weight: 600;
+    }
+  </style>
 </head>
 <body>
   <main class="legal-container">
     <a href="index.html" class="back-link">&larr; Volver al Editor</a>
 
     <h1>Aviso Legal y Política de Privacidad</h1>
-    <p><em>Última actualización: Noviembre de 2026</em></p>
+    <p class="date">Última actualización: Noviembre de 2026</p>
 
     <h2>1. Información General y Marco Legal</h2>
     <p>En cumplimiento de la Ley 1581 de 2012 y el Decreto Reglamentario 1377 de 2013 de la República de Colombia, se informa a los usuarios sobre las políticas de tratamiento de la información y condiciones de uso de la aplicación web <strong>Editor Lantex</strong>.</p>

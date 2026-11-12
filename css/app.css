@@ -1737,30 +1737,3 @@ kbd { font-family: var(--ui-font); }
   }
 }
 
-
-.legal-container {
-  max-width: 800px;         /* Limita el ancho máximo para una lectura cómoda */
-  margin: 40px auto;        /* Centra el contenedor horizontalmente y le da espacio arriba/abajo */
-  padding: 0 24px;          /* Añade márgenes internos a los lados para que no pegue en móviles */
-}
-
-/* Opcional: mejora el espaciado de los títulos y párrafos dentro de legal */
-.legal-container h1 {
-  margin-bottom: 8px;
-}
-
-.legal-container h2 {
-  margin-top: 32px;
-  margin-bottom: 12px;
-}
-
-.legal-container p, 
-.legal-container ul {
-  margin-bottom: 16px;
-  line-height: 1.6;         /* Mejora la legibilidad del texto */
-}
-
-.legal-container .back-link {
-  display: inline-block;
-  margin-bottom: 24px;
-}
