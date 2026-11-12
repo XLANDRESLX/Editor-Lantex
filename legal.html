@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta name="description" content="Aviso legal, términos y condiciones y política de privacidad de Lantex Editor." />
+  <meta name="color-scheme" content="light dark" />
+  <title>Aviso Legal · Lantex</title>
+
+  <!-- Tema aplicado antes del primer pintado para evitar destellos (sincronizado con el editor) -->
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('editor-config');
+        var theme = raw ? JSON.parse(raw).theme : null;
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) { /* almacenamiento no disponible */ }
+    })();
+  </script>
+
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="favicon.svg" type="image/svg+xml" />
+
+  <!-- Preconnect para optimizar la carga de fuentes -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+
+  <!-- Estilos propios de la aplicación -->
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <main class="legal-container">
+    <a href="index.html" class="back-link">&larr; Volver al Editor</a>
+
+    <h1>Aviso Legal y Política de Privacidad</h1>
+    <p><em>Última actualización: Noviembre de 2026</em></p>
+
+    <h2>1. Información General y Marco Legal</h2>
+    <p>En cumplimiento de la Ley 1581 de 2012 y el Decreto Reglamentario 1377 de 2013 de la República de Colombia, se informa a los usuarios sobre las políticas de tratamiento de la información y condiciones de uso de la aplicación web <strong>Editor Lantex</strong>.</p>
+
+    <h2>2. Tratamiento de Datos Personales (Habeas Data)</h2>
+    <p>Editor Lantex respeta la privacidad de sus usuarios. La herramienta opera de manera local en el navegador del usuario y no recopila, almacena ni comercializa bases de datos con información personal de carácter sensible en servidores externos.</p>
+    <p>De acuerdo con la normatividad colombiana, los usuarios titulares de datos tienen derecho a:</p>
+    <ul>
+      <li>Conocer, actualizar y rectificar sus datos personales.</li>
+      <li>Solicitar prueba de la autorización otorgada.</li>
+      <li>Revocar la autorización y/o solicitar la supresión del dato.</li>
+    </ul>
+
+    <h2>3. Propiedad Intelectual</h2>
+    <p>Todos los derechos de código fuente, diseño gráfico, estructura lógica y arquitectura de Editor Lantex pertenecen a su desarrollador. Queda prohibida su reproducción total o parcial sin autorización expresa.</p>
+
+    <h2>4. Limitación de Responsabilidad</h2>
+    <p>Editor Lantex se proporciona "tal cual" sin garantías de ningún tipo. El uso de la herramienta y el almacenamiento local de la información corre bajo la absoluta responsabilidad del usuario, recomendando realizar respaldos periódicos de sus archivos de texto.</p>
+
+    <h2>5. Contacto</h2>
+    <p>Para cualquier duda, comentario o ejercicio de derechos relacionados con la protección de datos, puede comunicarse a través del repositorio oficial en GitHub.</p>
+  </main>
+</body>
+</html>

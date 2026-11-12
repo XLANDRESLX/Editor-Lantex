@@ -2,27 +2,36 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
 <meta name="description" content="Editor Lantex: editor visual de documentos A4 con formato estilo Word, fórmulas LaTeX, imágenes, tablas, Markdown y exportación a PDF. 100% en el navegador." />
 <meta name="color-scheme" content="light dark" />
 <title>Lantex · Editor de documentos A4</title>
 
-<!-- Tema aplicado antes del primer pintado para evitar destellos -->
+<!-- Tema aplicado antes del primer pintado para evitar destellos (con soporte para preferencia del sistema si no hay localStorage) -->
 <script>
   (function () {
     try {
       var raw = localStorage.getItem('editor-config');
-      if (raw && JSON.parse(raw).theme === 'dark') document.documentElement.classList.add('dark');
+      var theme = raw ? JSON.parse(raw).theme : null;
+      if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
     } catch (e) { /* almacenamiento no disponible */ }
   })();
 </script>
 
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <link rel="alternate icon" href="favicon.svg" type="image/svg+xml" />
+
+<!-- Preconnect para optimizar la carga de fuentes y librerías externas -->
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
 <link rel="preconnect" href="https://unpkg.com" crossorigin />
+
+<!-- KaTeX CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
-      integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous" />
+    integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous" />
+
+<!-- Estilos propios -->
 <link rel="stylesheet" href="css/app.css" />
 </head>
 
@@ -66,9 +75,6 @@
       <button type="button" class="text-btn hide-sm" data-action="open-print" title="Imprimir o guardar como PDF con el motor del navegador">
         <i data-lucide="printer" class="icon"></i><span>Imprimir</span>
       </button>
-      <button type="button" class="text-btn primary" data-action="open-pdf" title="Exportar el documento a PDF">
-        <i data-lucide="file-down" class="icon"></i><span>PDF</span>
-      </button>
       <div class="menu-wrap">
         <button type="button" class="icon-btn appbar-icon" data-menu-toggle="fileMenu" title="Archivo y opciones" aria-label="Archivo y opciones" aria-expanded="false" aria-haspopup="true">
           <i data-lucide="ellipsis" class="icon"></i>
@@ -87,6 +93,9 @@
           <div class="menu-sep"></div>
           <button type="button" class="menu-item" data-action="insert-header"><i data-lucide="bookmark" class="icon"></i><span>Insertar cabecera de página</span></button>
           <button type="button" class="menu-item" data-action="open-settings"><i data-lucide="settings-2" class="icon"></i><span>Configuración</span></button>
+
+          <div class="menu-sep"></div>
+  <a href="legal.html" class="menu-item" role="menuitem"><i data-lucide="shield-check" class="icon"></i><span>Aviso Legal / Privacidad</span></a>
         </div>
       </div>
     </div>
