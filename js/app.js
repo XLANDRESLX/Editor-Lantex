@@ -104,6 +104,8 @@ class LantexApp {
     this.zoomScale = 1;
     this.pendingColorKind = 'foreColor';
     this.lastSaveState = 'saved';
+    this.selectedFormula = null;
+    this.editingFormula = null;
     this.refreshStatsSoon = debounce(() => this.updateStats(), 140);
     this.scheduleSave = debounce(() => this.saveNow(), 900);
     this.scheduleZoom = debounce(() => this.applyZoom(this.zoomMode === 'fit' ? 'fit' : this.zoomScale), 120);
@@ -851,7 +853,10 @@ class LantexApp {
     });
 
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') this.closeMenus();
+      if (event.key === 'Escape') {
+        this.closeMenus();
+        this.deselectFormula();
+      }
     });
   }
 
@@ -864,14 +869,69 @@ class LantexApp {
     // Mantiene la selección mientras se usa el menú.
     this.selection.save();
     popover.hidden = false;
+    this.positionPopover(popover);
     document.querySelectorAll('[data-menu-toggle="' + id + '"]').forEach((button) => {
       button.setAttribute('aria-expanded', 'true');
+      const wrap = button.closest('.menu-wrap');
+      if (wrap) wrap.classList.add('is-open');
     });
   }
 
+  positionPopover(popover) {
+    if (!popover) return;
+    popover.style.left = '';
+    popover.style.right = '';
+    popover.style.top = '';
+    popover.style.bottom = '';
+
+    const wrap = popover.closest('.menu-wrap');
+    if (!wrap) return;
+
+    const wrapRect = wrap.getBoundingClientRect();
+    const popRect = popover.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Alinear horizontalmente para que nunca se desborde fuera de la pantalla
+    if (wrapRect.left + popRect.width > viewportWidth - 10 || wrapRect.right > viewportWidth * 0.55) {
+      popover.style.left = 'auto';
+      popover.style.right = '0px';
+    } else {
+      popover.style.left = '0px';
+      popover.style.right = 'auto';
+    }
+
+    // Comprobación de límites en pantalla
+    const updatedRect = popover.getBoundingClientRect();
+    if (updatedRect.right > viewportWidth - 8) {
+      const shift = updatedRect.right - (viewportWidth - 8);
+      popover.style.right = `${shift}px`;
+    }
+    if (updatedRect.left < 8) {
+      popover.style.left = `${Math.max(0, 8 - wrapRect.left)}px`;
+      popover.style.right = 'auto';
+    }
+
+    // Alinear verticalmente si se sale por debajo y hay espacio arriba
+    if (wrapRect.bottom + popRect.height > viewportHeight - 10 && wrapRect.top > popRect.height + 10) {
+      popover.style.top = 'auto';
+      popover.style.bottom = 'calc(100% + 7px)';
+    }
+  }
+
   closeMenus() {
-    document.querySelectorAll('.popover').forEach((popover) => { popover.hidden = true; });
-    document.querySelectorAll('[data-menu-toggle]').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+    document.querySelectorAll('.popover').forEach((popover) => {
+      popover.hidden = true;
+      popover.style.left = '';
+      popover.style.right = '';
+      popover.style.top = '';
+      popover.style.bottom = '';
+    });
+    document.querySelectorAll('[data-menu-toggle]').forEach((button) => {
+      button.setAttribute('aria-expanded', 'false');
+      const wrap = button.closest('.menu-wrap');
+      if (wrap) wrap.classList.remove('is-open');
+    });
   }
 
   buildSwatches() {
@@ -1050,10 +1110,50 @@ class LantexApp {
     if (formulaForm) {
       formulaForm.addEventListener('submit', (event) => {
         event.preventDefault();
-        const tex = this.formulaTex ? this.formulaTex.value : '';
+        const tex = this.formulaTex ? this.formulaTex.value.trim() : '';
         const isBlock = document.querySelector('input[name="formulaDisplay"]:checked')?.value === 'block';
         this.closeDialog(document.getElementById('dlgFormula'));
-        this.withSelection(() => this.editor.insertFormula(tex, isBlock), { allowEmpty: true });
+
+        if (!tex) {
+          if (this.editingFormula && this.editingFormula.isConnected) {
+            this.editingFormula.remove();
+            this.editingFormula = null;
+            this.deselectFormula();
+            this.afterMutation({ relayout: true, historyNow: true });
+            this.toast('Fórmula eliminada.', 'info');
+          }
+          return;
+        }
+
+        if (this.editingFormula && this.editingFormula.isConnected) {
+          const newNode = Parser.mathNode(tex, isBlock);
+          this.editingFormula.replaceWith(newNode);
+          this.editingFormula = null;
+          this.deselectFormula();
+          this.afterMutation({ relayout: true, historyNow: true });
+          this.toast('Fórmula actualizada.', 'ok');
+        } else {
+          this.withSelection(() => this.editor.insertFormula(tex, isBlock), { allowEmpty: true });
+          this.toast('Fórmula insertada.', 'ok');
+        }
+      });
+    }
+
+    const btnEditFormula = document.getElementById('btnEditFormula');
+    if (btnEditFormula) {
+      btnEditFormula.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.openFormulaDialog(this.selectedFormula);
+      });
+    }
+
+    const btnDeleteFormula = document.getElementById('btnDeleteFormula');
+    if (btnDeleteFormula) {
+      btnDeleteFormula.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.deleteSelectedFormula();
       });
     }
 
@@ -1114,19 +1214,89 @@ class LantexApp {
     });
   }
 
-  openFormulaDialog() {
-    const range = this.selection.currentRange();
-    let tex = '';
-    if (range) {
+  selectFormula(formulaNode) {
+    if (!formulaNode || !formulaNode.isConnected) return;
+    this.deselectFormula({ silent: true });
+    this.selectedFormula = formulaNode;
+    formulaNode.classList.add('is-selected');
+    this.updateFormulaBubble();
+  }
+
+  deselectFormula(options = {}) {
+    if (this.selectedFormula) {
+      this.selectedFormula.classList.remove('is-selected');
+      this.selectedFormula = null;
+    }
+    const bubble = document.getElementById('formulaBubble');
+    if (bubble) bubble.hidden = true;
+  }
+
+  updateFormulaBubble() {
+    const bubble = document.getElementById('formulaBubble');
+    if (!bubble || !this.selectedFormula || !this.selectedFormula.isConnected) {
+      if (bubble) bubble.hidden = true;
+      return;
+    }
+    const rect = this.selectedFormula.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      bubble.hidden = true;
+      return;
+    }
+
+    bubble.hidden = false;
+    const bubbleRect = bubble.getBoundingClientRect();
+    let left = rect.left + (rect.width - bubbleRect.width) / 2;
+    left = Math.max(10, Math.min(window.innerWidth - bubbleRect.width - 10, left));
+
+    let top = rect.top - bubbleRect.height - 6;
+    if (top < 10) {
+      top = rect.bottom + 6;
+    }
+
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+  }
+
+  deleteSelectedFormula() {
+    if (!this.selectedFormula) return;
+    const node = this.selectedFormula;
+    this.deselectFormula();
+    node.remove();
+    this.afterMutation({ relayout: true, historyNow: true });
+    this.toast('Fórmula eliminada.', 'info');
+  }
+
+  openFormulaDialog(targetMath = null) {
+    const math = targetMath || this.selectedFormula || (() => {
+      const range = this.selection.currentRange();
+      if (!range) return null;
       const element = range.startContainer.nodeType === Node.ELEMENT_NODE
         ? range.startContainer
         : range.startContainer.parentElement;
-      const math = element ? element.closest('.math-inline, .math-block') : null;
-      if (math) tex = math.getAttribute('data-tex') || '';
+      return element ? element.closest('.math-inline, .math-block') : null;
+    })();
+
+    this.editingFormula = math && math.isConnected ? math : null;
+    let tex = '';
+    let isBlock = false;
+
+    if (this.editingFormula) {
+      tex = this.editingFormula.getAttribute('data-tex') || '';
+      isBlock = this.editingFormula.classList.contains('math-block');
+      this.selectFormula(this.editingFormula);
     }
+
     if (this.formulaTex) this.formulaTex.value = tex;
-    const inline = document.querySelector('input[name="formulaDisplay"][value="inline"]');
-    if (inline) inline.checked = true;
+    const radioInline = document.querySelector('input[name="formulaDisplay"][value="inline"]');
+    const radioBlock = document.querySelector('input[name="formulaDisplay"][value="block"]');
+    if (isBlock && radioBlock) radioBlock.checked = true;
+    else if (radioInline) radioInline.checked = true;
+
+    const titleText = document.getElementById('formulaDialogTitleText');
+    const submitBtn = document.getElementById('formulaSubmit');
+    if (titleText) titleText.textContent = this.editingFormula ? 'Editar fórmula LaTeX' : 'Fórmula LaTeX';
+    if (submitBtn) submitBtn.textContent = this.editingFormula ? 'Guardar cambios' : 'Insertar fórmula';
+
     this.selection.save();
     this.renderFormulaPreview();
     this.openDialog(document.getElementById('dlgFormula'));
@@ -1516,15 +1686,20 @@ class LantexApp {
         this.copyMarkdown();
         return;
       }
+      if (event.key === 'Escape') {
+        this.closeMenus();
+      }
+      if (isField) return;
       if (mod && !event.shiftKey && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         this.openLinkDialog();
         return;
       }
-      if (event.key === 'Escape') {
-        this.closeMenus();
+      if (mod && !event.shiftKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        this.editor.selectAll();
+        return;
       }
-      if (isField) return;
       if (mod && !event.shiftKey && event.key.toLowerCase() === 'b') {
         event.preventDefault();
         this.withSelection(() => this.editor.format('bold'));
@@ -1554,19 +1729,23 @@ class LantexApp {
     });
 
     window.addEventListener('resize', () => {
+      this.closeMenus();
       if (this.zoomMode === 'fit') this.scheduleZoom();
       this.images?.updateOverlay();
+      this.updateFormulaBubble();
     });
 
     this.pagesWrap.addEventListener('scroll', debounce(() => {
       this.refreshStatsSoon();
       this.images?.scheduleOverlayUpdate();
+      this.updateFormulaBubble();
     }, 70), { passive: true });
 
     observeResize(this.pagesWrap, () => {
       if (this.zoomMode === 'fit') this.scheduleZoom();
       else this.applyZoom(this.zoomScale);
       this.images?.scheduleOverlayUpdate();
+      this.updateFormulaBubble();
     });
 
     const persist = () => {

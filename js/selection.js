@@ -1,4 +1,4 @@
-import { textNodesOf } from './util.js';
+import { textNodesOf, uid } from './util.js';
 
 const EXCLUDED_SELECTOR = '.katex, .math-block, .math-inline, .math-error, .doc-figure, .doc-float-image, .pagebreak-block, .hdr-marker, button';
 
@@ -32,6 +32,7 @@ export class SelectionManager {
     let el = node && node.nodeType === Node.ELEMENT_NODE ? node : (node ? node.parentElement : null);
     const content = el ? el.closest('.a4-content') : null;
     if (!content) return null;
+    if (el === content) return content.firstElementChild || null;
     while (el && el.parentElement && el.parentElement !== content) el = el.parentElement;
     return el && el.parentElement === content ? el : null;
   }
@@ -63,16 +64,44 @@ export class SelectionManager {
   }
 
   makeBookmark(range, backward = false) {
-    const startBlock = this.topBlockOf(range.startContainer);
-    const endBlock = this.topBlockOf(range.endContainer);
+    let startBlock = this.topBlockOf(range.startContainer);
+    let endBlock = this.topBlockOf(range.endContainer);
     if (!startBlock || !endBlock) return null;
+
+    if (!startBlock.hasAttribute('data-bid')) {
+      startBlock.setAttribute('data-bid', uid('b'));
+    }
+    if (!endBlock.hasAttribute('data-bid')) {
+      endBlock.setAttribute('data-bid', uid('b'));
+    }
+
+    const startBid = startBlock.getAttribute('data-bid');
+    const startMatches = this.pagesEl.querySelectorAll(`[data-bid="${startBid}"]`);
+    if (startMatches.length > 1) {
+      startBlock.setAttribute('data-bid', uid('b'));
+    }
+
+    const endBid = endBlock.getAttribute('data-bid');
+    if (endBlock !== startBlock) {
+      const endMatches = this.pagesEl.querySelectorAll(`[data-bid="${endBid}"]`);
+      if (endMatches.length > 1) {
+        endBlock.setAttribute('data-bid', uid('b'));
+      }
+    }
+
+    const activePage = startBlock.closest('.a4-page');
+    const pageIndex = activePage && activePage.parentElement
+      ? Array.from(activePage.parentElement.children).indexOf(activePage)
+      : 0;
+
     return {
       startBid: startBlock.getAttribute('data-bid'),
       startOffset: this.offsetInBlock(startBlock, range.startContainer, range.startOffset),
       endBid: endBlock.getAttribute('data-bid'),
       endOffset: this.offsetInBlock(endBlock, range.endContainer, range.endOffset),
       collapsed: range.collapsed,
-      backward
+      backward,
+      pageIndex
     };
   }
 

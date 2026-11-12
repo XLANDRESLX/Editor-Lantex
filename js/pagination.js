@@ -83,9 +83,23 @@ export class Paginator {
       if (preserveSelection && bookmark && this.app.selection) {
         const restored = this.app.selection.restoreBookmark(bookmark, { focus: focusWasInPages });
         if (!restored) {
-          // Si el bloque desapareció, al menos conserva el foco en la hoja activa.
-          const content = this.pageContents[0];
-          if (content && focusWasInPages) content.focus({ preventScroll: true });
+          // Si el bloque no se pudo emparejar, conserva el foco en la hoja activa donde estaba el usuario, no en la primera
+          const targetIndex = typeof bookmark.pageIndex === 'number'
+            ? Math.min(Math.max(0, bookmark.pageIndex), this.pageContents.length - 1)
+            : 0;
+          const content = this.pageContents[targetIndex] || this.pageContents[0];
+          if (content && focusWasInPages) {
+            try { content.focus({ preventScroll: true }); } catch (e) { content.focus(); }
+            const last = content.lastElementChild || content;
+            const r = document.createRange();
+            r.selectNodeContents(last);
+            r.collapse(false);
+            const s = window.getSelection();
+            if (s) {
+              s.removeAllRanges();
+              s.addRange(r);
+            }
+          }
         }
       }
 

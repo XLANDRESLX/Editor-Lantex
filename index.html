@@ -324,6 +324,14 @@
         <div class="empty-hint-title">Tu documento empieza aquí</div>
         <div>Haz clic sobre la hoja y escribe. También puedes pegar texto o Markdown generado por una IA.</div>
       </div>
+      <div class="formula-bubble" id="formulaBubble" hidden>
+        <button type="button" class="bubble-btn" id="btnEditFormula" title="Editar expresión LaTeX">
+          <i data-lucide="pencil" class="icon-xs"></i><span>Editar</span>
+        </button>
+        <button type="button" class="bubble-btn danger" id="btnDeleteFormula" title="Eliminar fórmula">
+          <i data-lucide="trash-2" class="icon-xs"></i>
+        </button>
+      </div>
     </main>
 
     <aside class="inspector no-print" id="inspector" aria-label="Panel de propiedades" hidden>
@@ -549,7 +557,7 @@
 <dialog id="dlgFormula" class="app-dialog wide-dialog">
   <form id="formFormula" class="dialog-form">
     <div class="dialog-head">
-      <h2><i data-lucide="sigma" class="icon"></i> Fórmula LaTeX</h2>
+      <h2 id="formulaDialogTitle"><i data-lucide="sigma" class="icon"></i> <span id="formulaDialogTitleText">Fórmula LaTeX</span></h2>
       <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar"><i data-lucide="x" class="icon"></i></button>
     </div>
     <div class="dialog-body formula-layout">

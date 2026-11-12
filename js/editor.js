@@ -37,17 +37,31 @@ export class Editor {
     this.pagesEl.addEventListener('keydown', (event) => this.onKeyDown(event));
     this.pagesEl.addEventListener('paste', (event) => this.onPaste(event));
     this.pagesEl.addEventListener('click', (event) => this.onClick(event));
+    this.pagesEl.addEventListener('dblclick', (event) => this.onDblClick(event));
     this.pagesEl.addEventListener('focusin', () => this.scheduleSync());
     this.pagesEl.addEventListener('keyup', () => this.scheduleSync());
     this.pagesEl.addEventListener('mouseup', () => this.scheduleSync());
 
     this.pagesEl.addEventListener('beforeinput', (event) => {
+      // Solo procesar eventos que vienen de dentro de .a4-content
+      if (!event.target.closest('.a4-content')) return;
       if (event.inputType === 'historyUndo') {
         event.preventDefault();
         this.app.undo();
       } else if (event.inputType === 'historyRedo') {
         event.preventDefault();
         this.app.redo();
+      } else if (this.isMultiPageSelection()) {
+        if (event.inputType.startsWith('delete')) {
+          event.preventDefault();
+          this.deleteMultiPageSelection();
+        } else if (event.inputType === 'insertText' || event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
+          event.preventDefault();
+          this.deleteMultiPageSelection();
+          if (event.data) {
+            this.insertTextAtCaret(event.data);
+          }
+        }
       }
     });
 
@@ -278,24 +292,198 @@ export class Editor {
     return list;
   }
 
+  selectAll() {
+    const contents = Array.from(this.pagesEl.querySelectorAll('.a4-content'));
+    if (!contents.length) return false;
+    const firstContent = contents[0];
+    const lastContent = contents[contents.length - 1];
+
+    const firstBlock = firstContent.firstElementChild;
+    const lastBlock = lastContent.lastElementChild;
+
+    const sel = window.getSelection();
+    if (!sel) return false;
+
+    try { firstContent.focus({ preventScroll: true }); } catch (e) { firstContent.focus(); }
+
+    const range = document.createRange();
+    if (firstBlock) {
+      range.setStart(firstBlock, 0);
+    } else {
+      range.setStart(firstContent, 0);
+    }
+    if (lastBlock) {
+      range.setEnd(lastBlock, lastBlock.childNodes.length);
+    } else {
+      range.setEnd(lastContent, lastContent.childNodes.length);
+    }
+
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    this.app.selection.save();
+    this.scheduleSync();
+    return true;
+  }
+
+  isMultiPageSelection(range = this.currentRange()) {
+    if (!range || range.collapsed) return false;
+    const startContent = this.app.selection.contentOf(range.startContainer);
+    const endContent = this.app.selection.contentOf(range.endContainer);
+    return !!(startContent && endContent && startContent !== endContent);
+  }
+
+  deleteMultiPageSelection(range = this.currentRange()) {
+    if (!range) return false;
+    const contents = Array.from(this.pagesEl.querySelectorAll('.a4-content'));
+    if (!contents.length) return false;
+
+    const firstContent = contents[0];
+    const lastContent = contents[contents.length - 1];
+    const firstBlock = firstContent.firstElementChild;
+    const lastBlock = lastContent.lastElementChild;
+
+    const isStartAtBeginning = (range.startContainer === firstContent && range.startOffset === 0) ||
+      (firstBlock && (range.startContainer === firstBlock || firstBlock.contains(range.startContainer)) && range.startOffset === 0);
+    const isEndAtEnd = (range.endContainer === lastContent) ||
+      (lastBlock && (range.endContainer === lastBlock || lastBlock.contains(range.endContainer)) &&
+       (range.endContainer.nodeType === Node.TEXT_NODE ? range.endOffset >= range.endContainer.data.length : range.endOffset >= range.endContainer.childNodes.length));
+
+    if (isStartAtBeginning && isEndAtEnd) {
+      firstContent.innerHTML = '<p data-bid="b-empty"><br></p>';
+      for (let i = 1; i < contents.length; i++) {
+        contents[i].replaceChildren();
+      }
+      this.placeCaret(firstContent.firstElementChild, 'start');
+      this.app.afterMutation({ relayout: true, historyNow: true });
+      return true;
+    }
+
+    const startContent = this.app.selection.contentOf(range.startContainer);
+    const endContent = this.app.selection.contentOf(range.endContainer);
+
+    let inBetween = false;
+    contents.forEach((c) => {
+      if (c === startContent) {
+        inBetween = true;
+        return;
+      }
+      if (c === endContent) {
+        inBetween = false;
+        return;
+      }
+      if (inBetween) {
+        c.replaceChildren();
+      }
+    });
+
+    if (endContent) {
+      try {
+        const endSubRange = document.createRange();
+        endSubRange.setStart(endContent, 0);
+        endSubRange.setEnd(range.endContainer, range.endOffset);
+        endSubRange.deleteContents();
+      } catch (e) { /* ignore */ }
+    }
+
+    if (startContent) {
+      try {
+        const startSubRange = document.createRange();
+        startSubRange.setStart(range.startContainer, range.startOffset);
+        startSubRange.setEnd(startContent, startContent.childNodes.length);
+        startSubRange.deleteContents();
+      } catch (e) { /* ignore */ }
+    }
+
+    if (startContent && endContent && startContent !== endContent) {
+      while (endContent.firstChild) {
+        startContent.appendChild(endContent.firstChild);
+      }
+    }
+
+    if (!startContent || !startContent.firstElementChild) {
+      const target = startContent || firstContent;
+      target.innerHTML = '<p data-bid="b-empty"><br></p>';
+      this.placeCaret(target.firstElementChild, 'start');
+    } else {
+      this.placeCaret(startContent, 'end');
+    }
+
+    this.app.afterMutation({ relayout: true, historyNow: true });
+    return true;
+  }
+
+  insertTextAtCaret(text) {
+    if (!text) return;
+    try {
+      document.execCommand('insertText', false, text);
+    } catch (e) {
+      const range = this.currentRange();
+      if (!range) return;
+      range.deleteContents();
+      const node = document.createTextNode(text);
+      range.insertNode(node);
+      this.placeCaret(node, 'end');
+    }
+  }
+
   /* ------------------------------------------------------------------ */
   /* Entrada de texto y pegado                                         */
   /* ------------------------------------------------------------------ */
 
   onKeyDown(event) {
     if (event.defaultPrevented || event.isComposing) return;
+    const mod = event.ctrlKey || event.metaKey;
+
+    if (mod && !event.shiftKey && event.key.toLowerCase() === 'a') {
+      event.preventDefault();
+      this.selectAll();
+      return;
+    }
+
     if (event.key === 'Escape') {
+      if (this.app.selectedFormula) {
+        this.app.deselectFormula();
+        event.preventDefault();
+        return;
+      }
       if (this.app.images && this.app.images.selected) {
         this.app.images.deselect();
         event.preventDefault();
       }
       return;
     }
-    if ((event.key === 'Delete' || event.key === 'Backspace') && this.app.images && this.app.images.selected) {
-      event.preventDefault();
-      this.app.images.deleteSelected();
-      return;
+
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (this.app.selectedFormula) {
+        event.preventDefault();
+        this.app.deleteSelectedFormula();
+        return;
+      }
+      if (this.app.images && this.app.images.selected) {
+        event.preventDefault();
+        this.app.images.deleteSelected();
+        return;
+      }
+      if (this.isMultiPageSelection()) {
+        event.preventDefault();
+        this.deleteMultiPageSelection();
+        return;
+      }
     }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
+      setTimeout(() => {
+        const range = this.currentRange();
+        if (range) {
+          const block = this.app.selection.topBlockOf(range.startContainer);
+          if (block && !block.hasAttribute('data-bid')) {
+            block.setAttribute('data-bid', uid('b'));
+          }
+        }
+      }, 0);
+    }
+
     if (event.key === 'Tab') {
       const cell = event.target.closest && event.target.closest('td, th');
       if (cell) {
@@ -306,6 +494,17 @@ export class Editor {
   }
 
   onClick(event) {
+    const math = event.target.closest('.math-inline, .math-block');
+    if (math) {
+      this.app.selectFormula(math);
+      return;
+    }
+    if (!event.target.closest('#formulaBubble')) {
+      this.app.deselectFormula();
+    }
+    // No continuar si el clic fue en un control de UI fuera de las hojas
+    if (!event.target.closest('.a4-content, .a4-page')) return;
+
     const remove = event.target.closest('[data-remove-marker]');
     if (remove) {
       const marker = remove.closest('.pagebreak-block, .hdr-marker');
@@ -323,10 +522,22 @@ export class Editor {
     }
   }
 
+  onDblClick(event) {
+    const math = event.target.closest('.math-inline, .math-block');
+    if (math) {
+      event.preventDefault();
+      this.app.openFormulaDialog(math);
+    }
+  }
+
   onPaste(event) {
     const clipboard = event.clipboardData;
     if (!clipboard) return;
     if (this.app.images && this.app.images.handlePaste(event)) return;
+
+    if (this.isMultiPageSelection()) {
+      this.deleteMultiPageSelection();
+    }
 
     const text = clipboard.getData('text/plain') || '';
     const html = clipboard.getData('text/html') || '';
@@ -905,7 +1116,8 @@ export class Editor {
   }
 
   syncToolbar() {
-    const range = this.currentRange();
+    // Usar selection.currentRange() directamente (sin restaurar foco) para no robar el foco de inputs
+    const range = this.app.selection.currentRange();
     if (!range) return;
     const block = this.currentBlock() || this.app.selection.caretContent();
     if (!block) return;

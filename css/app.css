@@ -486,17 +486,19 @@ select.field, .compact-select, .compact-field {
    -------------------------------------------------------------------------- */
 .formatbar {
   flex: 0 0 auto;
-  height: 64px;
+  min-height: 64px;
+  height: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
+  align-content: flex-start;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 3px 8px 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  /* Sin recorte: los menús emergentes deben poder salir por debajo. */
+  overflow: visible;
   position: relative;
-  z-index: 35;
-  scrollbar-width: thin;
+  z-index: 50;
 }
 .fmt-group {
   display: flex;
@@ -534,12 +536,19 @@ html.dark .image-group { background: linear-gradient(180deg, rgba(126, 168, 236,
    5. Menús, popovers
    -------------------------------------------------------------------------- */
 .menu-wrap { position: relative; display: inline-flex; }
+.menu-wrap:has([data-menu-toggle][aria-expanded="true"]),
+.menu-wrap.is-open {
+  z-index: 100;
+}
 .popover {
   position: absolute;
   top: calc(100% + 7px);
   left: 0;
-  z-index: 80;
+  z-index: 1000;
   min-width: 210px;
+  max-width: min(92vw, 360px);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -550,7 +559,8 @@ html.dark .image-group { background: linear-gradient(180deg, rgba(126, 168, 236,
 @keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 .popover.menu { min-width: 248px; }
 .file-menu { left: auto; right: 0; }
-.page-menu { min-width: 280px; }
+.page-menu { min-width: 280px; left: auto; right: 0; }
+#insertMenu { left: auto; right: 0; min-width: 248px; }
 .spacing-menu { min-width: 232px; }
 .popover-title {
   padding: 4px 7px 6px;
@@ -1063,9 +1073,48 @@ html.dark .a4-page:focus-within {
 
 /* Selección de fórmula */
 .math-block.is-selected, .math-inline.is-selected {
-  outline: 1.5px solid rgba(43, 87, 154, .6);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 2px;
+  border-radius: 3px;
+  background: rgba(43, 87, 154, .08);
+}
+.formula-bubble {
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  animation: pop-in .12s ease;
+  pointer-events: auto;
+}
+.formula-bubble .bubble-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+.formula-bubble .bubble-btn:hover {
+  background: var(--surface-3);
+}
+.formula-bubble .bubble-btn.danger {
+  color: var(--danger);
+  padding: 4px 6px;
+}
+.formula-bubble .bubble-btn.danger:hover {
+  background: rgba(220, 38, 38, .12);
 }
 
 /* --------------------------------------------------------------------------
@@ -1156,7 +1205,8 @@ html.dark .a4-page:focus-within {
    -------------------------------------------------------------------------- */
 .statusbar {
   flex: 0 0 auto;
-  height: var(--statusbar-h);
+  min-height: var(--statusbar-h);
+  height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1607,6 +1657,12 @@ kbd { font-family: var(--ui-font); }
   .brand-name { display: none; }
   .appbar { gap: 10px; }
 }
+@media (max-width: 1140px) {
+  .icon-btn.labeled span { display: none; }
+  .icon-btn.labeled { width: 30px; padding: 0; }
+  .fmt-group { padding: 0 4px 0 3px; }
+  .font-select { width: 110px; }
+}
 @media (max-width: 1023px) {
   .inspector {
     position: absolute;
@@ -1622,16 +1678,17 @@ kbd { font-family: var(--ui-font); }
 }
 @media (max-width: 860px) {
   :root { --appbar-h: 50px; }
-  .formatbar { height: 60px; }
-  .fmt-group { padding: 0 5px; }
+  .formatbar { height: auto; min-height: 52px; padding: 2px 4px; }
+  .fmt-group { padding: 0 4px; justify-content: center; min-height: 48px; }
   .fmt-label { display: none; }
-  .fmt-group { justify-content: center; min-height: 52px; }
-  .fmt-controls { min-height: 44px; }
+  .fmt-controls { min-height: 40px; }
   .appbar-icon { width: 28px; height: 28px; }
   .text-btn { padding: 0 8px; font-size: 11.5px; }
   .title-meta .dot-sep, #docMeta { display: none; }
   .hide-sm { display: none !important; }
   .canvas { padding: 16px 12px 70px; }
+  .statusbar { overflow-x: auto; overflow-y: hidden; }
+  #readingTime { display: none; }
 }
 @media (max-width: 640px) {
   .brand { display: none; }
@@ -1640,19 +1697,21 @@ kbd { font-family: var(--ui-font); }
   .title-meta { font-size: 9.5px; }
   .appbar-actions { gap: 1px; }
   .appbar-actions .toolbar-sep { display: none; }
-  .formatbar { padding-left: 4px; padding-right: 4px; }
+  .formatbar { padding-left: 4px; padding-right: 4px; height: auto; }
   .fmt-group { border-right-color: transparent; }
-  .icon-btn { width: 29px; height: 29px; }
-  .icon-btn.labeled { padding: 0 5px; font-size: 10.5px; }
+  .icon-btn { width: 28px; height: 28px; }
+  .icon-btn.labeled { padding: 0 4px; font-size: 10.5px; }
   .compact-select { font-size: 10.5px; }
-  .font-select { width: 98px; }
-  .style-select { width: 78px; }
+  .font-select { width: 92px; }
+  .style-select { width: 72px; }
   .size-combo .step-btn { display: none; }
+  .size-combo .combo-input { width: 34px; }
   .field-row .field { max-width: 150px; }
   .hide-md { display: none !important; }
-  .statusbar { padding: 0 8px; gap: 6px; }
-  .status-left { gap: 6px; }
-  #charCount { display: none; }
+  .statusbar { padding: 0 8px; gap: 6px; overflow-x: auto; overflow-y: hidden; }
+  .status-left { gap: 6px; flex-shrink: 0; }
+  .status-right { flex-shrink: 0; }
+  #charCount, #readingTime { display: none; }
   .dialog-body { padding: 12px 14px 6px; }
   .dialog-actions { padding: 10px 14px 12px; }
   .formula-layout { grid-template-columns: 1fr; }
